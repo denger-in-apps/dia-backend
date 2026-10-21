@@ -1,0 +1,14 @@
+﻿node : [96msrc/main.ts[0m:[93m3[0m:[93m10[0m - [91merror[0m[90m TS2305: [0mModule '"@nestjs/common"' has no 
+exported member 'ValidationPipe'.
+At line:4 char:310
++ ... utf8NoBom); node .\node_modules\@nestjs\cli\bin\nest.js build 2>&1 |  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([96msrc/main.t...alidationPipe'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+[7m3[0m import { ValidationPipe } from '@nestjs/common';
+[7m [0m [91m         ~~~~~~~~~~~~~~[0m
+
+Found 1 error(s).
+

@@ -1,0 +1,12 @@
+"use strict";
+const { DataSource } = require('typeorm');
+const AppDataSource = new DataSource({
+    type: 'postgres',
+    url: process.env.DATABASE_URL,
+    entities: ['dist/**/*.entity.js'],
+    migrations: ['dist/database/migrations/*.js'],
+    synchronize: false,
+    logging: false,
+});
+module.exports = { AppDataSource };
+//# sourceMappingURL=data-source.js.map
