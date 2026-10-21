@@ -1,0 +1,30 @@
+﻿node : <anonymous_script>:1
+At line:4 char:238
++ ... utf8NoBom); node .\node_modules\@nestjs\cli\bin\nest.js build 2>&1 |  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (<anonymous_script>:1:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+﻿{
+^
+
+SyntaxError: Unexpected token '﻿', "﻿{
+  "coll"... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at NestConfigurationLoader.load 
+(D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\lib\configuration\nest-configuration.loader.js:36:37)
+    at loadConfiguration 
+(D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\lib\utils\load-configuration.js:8:19)
+    at GenerateCommand.getCollection 
+(D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\commands\generate.command.js:113:80)
+    at GenerateCommand.buildDescription 
+(D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\commands\generate.command.js:83:39)
+    at GenerateCommand.load 
+(D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\commands\generate.command.js:15:37)
+    at CommandLoader.load 
+(D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\commands\command.loader.js:20:86)
+    at bootstrap (D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\bin\nest.js:15:34)
+    at Object.<anonymous> (D:\Dev\university\dia-backend\apps\api\node_modules\@nestjs\cli\bin\nest.js:25:1)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14)
+
+Node.js v24.21.0

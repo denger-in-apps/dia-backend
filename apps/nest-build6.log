@@ -1,0 +1,15 @@
+﻿node : [96msrc/main.ts[0m:[93m8[0m:[93m1[0m - [91merror[0m[90m TS1378: [0mTop-level 'await' expressions are 
+only allowed when the 'module' option is set to 'es2022', 'esnext', 'system', 'node16', 'node18', 'node20', 
+'nodenext', or 'preserve', and the 'target' option is set to 'es2017' or higher.
+At line:4 char:56
++ ... \apps\api"; node .\node_modules\@nestjs\cli\bin\nest.js build 2>&1 |  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([96msrc/main.t...017' or higher.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+[7m8[0m await bootstrap();
+[7m [0m [91m~~~~~[0m
+
+Found 1 error(s).
+

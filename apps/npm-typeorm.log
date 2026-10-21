@@ -1,0 +1,30 @@
+﻿
+added 11 packages, removed 8 packages, changed 53 packages, and audited 881 packages in 2m
+
+146 packages are looking for funding
+  run `npm fund` for details
+
+41 vulnerabilities (8 moderate, 33 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm : npm warn install-scripts 6 packages have install scripts not yet covered by allowScripts:
+At line:4 char:56
++ ... ackend\apps\api"; npm install typeorm --legacy-peer-deps 2>&1 | Out-F ...
++                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn instal...y allowScripts::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm warn install-scripts   argon2@0.41.1 (install: node-gyp-build)
+npm warn install-scripts   cpu-features@0.0.10 (install: node buildcheck.js > buildcheck.gypi && node-gyp rebuild)
+npm warn install-scripts   msgpackr-extract@3.0.4 (install: node-gyp-build-optional-packages)
+npm warn install-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+npm warn install-scripts   ssh2@1.17.0 (install: node install.js)
+npm warn install-scripts   @scarf/scarf@1.4.0 (postinstall: node ./report.js)
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.

@@ -1,0 +1,27 @@
+﻿npm : npm error code ERESOLVE
+At line:4 char:56
++ ... on "D:\Dev\university\dia-backend\apps\api"; npm install 2>&1 | Out-F ...
++                                                  ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm error code ERESOLVE:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm error ERESOLVE unable to resolve dependency tree
+npm error
+npm error While resolving: api@0.0.1
+npm error Found: @nestjs/common@11.2.7
+npm error node_modules/@nestjs/common
+npm error   @nestjs/common@"^11.0.0" from the root project
+npm error
+npm error Could not resolve dependency:
+npm error peer @nestjs/common@"^9.0.0 || ^10.0.0" from @nestjs/swagger@8.1.1
+npm error node_modules/@nestjs/swagger
+npm error   @nestjs/swagger@"^8.0.0" from the root project
+npm error
+npm error Fix the upstream dependency conflict, or retry this command with --force or --legacy-peer-deps to accept an 
+incorrect (and potentially broken) dependency resolution.
+npm error
+npm error
+npm error For a full report see:
+npm error C:\Users\USER\AppData\Local\npm-cache\_logs\2026-10-21T03_51_05_363Z-eresolve-report.txt
+npm error A complete log of this run can be found in: 
+C:\Users\USER\AppData\Local\npm-cache\_logs\2026-10-21T03_51_05_363Z-debug-0.log

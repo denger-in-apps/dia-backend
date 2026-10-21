@@ -1,0 +1,8 @@
+﻿timeout : ERROR: Invalid syntax. Default option is not allowed more than '1' time(s).
+At line:4 char:56
++ ... \apps\api"; timeout 180 npx --yes @nestjs/cli@latest --version 2>&1 | ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ERROR: Invalid ...an '1' time(s).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Type "TIMEOUT /?" for usage.

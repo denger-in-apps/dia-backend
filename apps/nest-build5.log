@@ -1,0 +1,17 @@
+﻿node : [91merror[0m[90m TS2688: [0mCannot find type definition file for 'vitest/globals'.
+At line:4 char:56
++ ... \apps\api"; node .\node_modules\@nestjs\cli\bin\nest.js build 2>&1 |  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([91merror[0m...itest/globals'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  The file is in the program because:
+    Entry point of type library 'vitest/globals' specified in compilerOptions
+[96msrc/main.ts[0m:[93m8[0m:[93m1[0m - [91merror[0m[90m TS1309: [0mThe current file is a CommonJS module and 
+cannot use 'await' at the top level.
+
+[7m8[0m await bootstrap();
+[7m [0m [91m~~~~~[0m
+
+Found 2 error(s).
+
