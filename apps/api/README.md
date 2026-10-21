@@ -8,5 +8,5 @@ Setup sesuai dokumen dia-backend/02-backend.md.
 - migration:run
 - migration:revert
 - migration:generate
-- seed
+- seeder
 - test / test:e2e
