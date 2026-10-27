@@ -8,12 +8,14 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      TRUST_PROXY: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost}
       DATABASE_URL: ${DATABASE_URL:-postgres://denger_app:${APP_DB_PASSWORD:-dia_app_dev_only}@postgres:5432/${POSTGRES_DB:-denger}}
       REPORT_DATABASE_URL: postgres://denger_report:${REPORT_DB_PASSWORD:-dia_report_dev_only}@postgres:5432/${POSTGRES_DB:-denger}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-    ports:
-      - "${API_PORT:-3000}:3000"
+    expose:
+      - "3000"
     volumes:
       - ./apps/api:/app
       - api_node_modules:/app/node_modules
@@ -22,6 +24,21 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+
+  gateway:
+    build:
+      context: ./infra/gateway
+    environment:
+      TLS_MODE: ${TLS_MODE:-development}
+    ports:
+      - "${GATEWAY_HTTP_PORT:-80}:80"
+      - "${GATEWAY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./infra/gateway/certs:/etc/nginx/certs
+      - ./infra/gateway/proxy_params:/etc/nginx/proxy_params:ro
+    depends_on:
+      api:
+        condition: service_started
 
   migrate:
     build:
@@ -49,7 +66,7 @@ services:
       POSTGRES_USER: denger_owner
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dia_owner_dev_only}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -62,7 +79,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:

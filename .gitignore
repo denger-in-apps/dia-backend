@@ -4,3 +4,5 @@
 **/.env
 **/.env.*
 !**/.env.example
+infra/gateway/certs/*
+!infra/gateway/certs/.gitkeep
