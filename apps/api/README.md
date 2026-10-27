@@ -2,19 +2,101 @@
 
 Setup sesuai dokumen dia-backend/02-backend.md.
 
-## Docker Compose (development)
+## Menjalankan dan mengetes backend
 
-1. Salin `.env.example` di root repo ke `.env`, lalu sesuaikan origin FE di
-   `CORS_ORIGINS`.
-2. Dari root repository jalankan `docker compose up --build`.
-3. Buka API melalui `https://localhost`. Gateway membuat sertifikat self-signed
-   untuk development; browser akan menampilkan peringatan sertifikat.
+### Persiapan (PowerShell)
 
-Compose menyiapkan PostgreSQL, Redis, API, dan Nginx API Gateway. API hanya
-terekspos di jaringan Compose; akses database dan Redis dari host dibatasi ke
-loopback untuk development. Port 80 mengalihkan ke HTTPS. Data database/cache
-disimpan di named volumes.
-`docker compose down -v` menghapus container dan data lokal.
+Jalankan perintah dari folder utama repository (`dia-backend`):
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Buat key JWT development sekali saja, bila `infra/auth/jwt_private.pem` dan
+`infra/auth/jwt_public.pem` belum ada:
+
+```powershell
+node infra/auth/generate-dev-jwt-keys.cjs
+```
+
+File privat berada di `infra/auth/` dan diabaikan Git. Jangan menimpa key yang
+sudah digunakan untuk data atau sesi yang ingin dipertahankan.
+
+### Jalankan service
+
+```powershell
+docker compose up --build -d
+docker compose ps
+```
+
+Compose menjalankan PostgreSQL, Redis, migrasi, API, dan Nginx gateway. Tunggu
+sampai `postgres` dan `redis` berstatus `healthy`, `api` dan `gateway` berstatus
+`Up`, serta `migrate` selesai dengan kode `0`. Baris `No migrations are pending`
+berarti database sudah memiliki semua migrasi.
+
+Port default gateway adalah 80 (HTTP) dan 443 (HTTPS). Jika port tersebut sudah
+dipakai, ubah `GATEWAY_HTTP_PORT` dan `GATEWAY_HTTPS_PORT` di `.env`, misalnya:
+
+```dotenv
+GATEWAY_HTTP_PORT=18080
+GATEWAY_HTTPS_PORT=18443
+```
+
+Setelah mengubah port, jalankan kembali `docker compose up -d`.
+
+### Cek API
+
+Untuk konfigurasi port contoh di atas, dari PowerShell jalankan:
+
+```powershell
+curl.exe -k -i https://localhost:18443/health/live
+curl.exe -k -i https://localhost:18443/health/ready
+```
+
+Ganti `18443` dengan nilai `GATEWAY_HTTPS_PORT` di `.env`. Respons yang
+diharapkan adalah HTTP `200` dengan body `{"status":"ok"}`. Opsi `-k`
+mengizinkan sertifikat self-signed yang dibuat gateway untuk development.
+Alternatifnya, buka URL endpoint health tersebut di browser dan lanjutkan
+melewati peringatan sertifikat lokal.
+
+Untuk melihat log API (bukan log migrasi):
+
+```powershell
+docker compose logs -f api
+```
+
+Log `Nest application successfully started` menandakan API berhasil mulai.
+Log migrasi dapat dilihat terpisah dengan `docker compose logs migrate`.
+
+### Menjalankan unit test
+
+Dari folder API:
+
+```powershell
+cd apps/api
+npm ci
+npm test -- --runInBand
+```
+
+Untuk memastikan TypeScript dapat dikompilasi:
+
+```powershell
+npm run build
+```
+
+`npm run start` menjalankan API langsung di host, bukan di container. Jalur ini
+memerlukan environment lokal seperti `DATABASE_URL`, key enkripsi, key JWT, dan
+Redis. Untuk pengujian paling sederhana, jalankan API lewat Compose dan gunakan
+health endpoint di atas.
+
+### Menghentikan service
+
+```powershell
+docker compose down
+```
+
+Perintah itu mempertahankan data database dan Redis. `docker compose down -v`
+menghapus volume beserta data development lokal.
 
 ## Enkripsi data dan backup
 
@@ -49,6 +131,26 @@ Untuk restore, dekripsi file `.dump.age` menggunakan identity privat age, lalu
 pulihkan arsip custom-format dengan `pg_restore` ke database kosong. Role
 `denger_app` dan `denger_report` harus sudah tersedia; sinkronkan backup terenkripsi
 ke penyimpanan terpisah agar tetap tersedia bila host lokal gagal.
+
+## Autentikasi PBI-01
+
+- `POST /api/v1/auth/staff/login` menerima `{ "role": "PSIKOLOG" | "DOSEN_ADMIN", "email": "...", "password": "...", "otp": "..."? }`.
+- `GET /api/v1/auth/sso/login` memulai OIDC Authorization Code + PKCE; callback adalah `GET /api/v1/auth/sso/callback`.
+- `POST /api/v1/auth/refresh` merotasi refresh cookie; `POST /api/v1/auth/logout` mencabut seluruh keluarga token.
+- `GET /api/v1/auth/me` memerlukan `Authorization: Bearer <accessToken>`.
+
+Access token RS256 berlaku 15 menit; refresh token acak disimpan hanya sebagai
+SHA-256 hash dan dikirim lewat cookie `HttpOnly`, `Secure`, `SameSite=Lax`.
+Gunakan `REFRESH_COOKIE_SAME_SITE=none` bila FE/API benar-benar lintas-site.
+Jika refresh token lama digunakan kembali, semua token dalam keluarganya dicabut.
+`RolesGuard` dan `@Roles(...)` tersedia untuk endpoint yang dibatasi peran.
+
+Untuk mengaktifkan SSO, isi `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`,
+`OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, dan nama klaim NIM dari IT kampus.
+Klaim email harus ditandai terverifikasi. Status mahasiswa dicek fail-closed
+melalui `mahasiswa.status_aktif`; PBI-02 perlu mengisi status hasil verifikasi
+akademik sebelum sesi diterbitkan. Akun staf harus lebih dulu diprovisikan;
+psikolog hanya dapat login setelah `status_akun = 'AKTIF'`.
 
 Untuk deployment, set `TLS_MODE=production` dan pasang sertifikat tepercaya
 sebagai `/etc/nginx/certs/tls.crt` dan `/etc/nginx/certs/tls.key`. Gateway akan

@@ -1,7 +1,7 @@
-﻿import { NestFactory } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
+import cookieParser = require('cookie-parser');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -17,7 +17,7 @@ async function bootstrap() {
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
   }
   app.enableShutdownHooks();
-  
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
 }

@@ -12,12 +12,12 @@ export class RolesAndGrants1761500001000 implements MigrationInterface {
 
     // Parameters carry secrets; format(%L) safely quotes them in CREATE ROLE.
     const [{ statement: createAppRole }] = await queryRunner.query(
-      `SELECT format('CREATE ROLE denger_app LOGIN PASSWORD %L', $1) AS statement`,
+      `SELECT format('CREATE ROLE denger_app LOGIN PASSWORD %L', $1::text) AS statement`,
       [appPassword],
     );
     await queryRunner.query(createAppRole);
     const [{ statement: createReportRole }] = await queryRunner.query(
-      `SELECT format('CREATE ROLE denger_report LOGIN PASSWORD %L', $1) AS statement`,
+      `SELECT format('CREATE ROLE denger_report LOGIN PASSWORD %L', $1::text) AS statement`,
       [reportPassword],
     );
     await queryRunner.query(createReportRole);
