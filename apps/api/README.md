@@ -16,6 +16,40 @@ loopback untuk development. Port 80 mengalihkan ke HTTPS. Data database/cache
 disimpan di named volumes.
 `docker compose down -v` menghapus container dan data lokal.
 
+## Enkripsi data dan backup
+
+`EncryptionService` memakai AES-256-GCM dan menghasilkan envelope biner
+`version | panjang ID kunci | ID kunci | IV | ciphertext | authentication tag`.
+AAD wajib diberikan dengan konteks stabil, misalnya
+`kontak_darurat:no_telepon_enc:<id_kontak>`. Ciphertext yang dipindah ke baris
+atau kolom lain akan gagal didekripsi. Kolom sensitif `*_enc` di skema database
+menyimpan hasil enkripsi ini; jangan menulis plaintext ke log.
+
+Untuk menjalankan lokal, salin `.env.example` ke `.env`. `ENCRYPTION_KEY_1`
+adalah kunci development contoh; ganti dengan kunci acak 32 byte sebelum
+menyimpan data nyata. Buat nilainya dengan
+`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
+Kunci produksi simpan di secret manager, bukan di Git atau database. Saat rotasi,
+tambahkan kunci baru dengan ID baru (mis. `ENCRYPTION_KEY_2`), ubah
+`ENCRYPTION_ACTIVE_KEY_ID`, lalu enkripsi ulang data lama secara bertahap
+sebelum mencabut kunci lama.
+
+Backup harian diaktifkan setelah key age disiapkan. Di PowerShell, buat keypair
+di luar repo dengan `age-keygen -o "$env:USERPROFILE\backup.agekey"`. Simpan
+identity privat tersebut dengan aman, lalu masukkan recipient publik (`age1...`)
+yang dicetak perintah itu ke `BACKUP_AGE_RECIPIENT` di `.env`.
+Jalankan `docker compose --profile backup up -d --build`. Service membuat backup
+pertama saat start, lalu mengulang setiap 24 jam; kegagalan dicoba lagi setelah
+5 menit. File `pg_dump` dienkripsi dengan age sebelum ditulis ke `backups/`,
+memiliki mode file terbatas, dan backup lokal yang lebih lama dari 14 hari
+dihapus. Interval dan retensi dapat diatur melalui `BACKUP_INTERVAL_SECONDS`
+dan `BACKUP_RETENTION_DAYS`.
+
+Untuk restore, dekripsi file `.dump.age` menggunakan identity privat age, lalu
+pulihkan arsip custom-format dengan `pg_restore` ke database kosong. Role
+`denger_app` dan `denger_report` harus sudah tersedia; sinkronkan backup terenkripsi
+ke penyimpanan terpisah agar tetap tersedia bila host lokal gagal.
+
 Untuk deployment, set `TLS_MODE=production` dan pasang sertifikat tepercaya
 sebagai `/etc/nginx/certs/tls.crt` dan `/etc/nginx/certs/tls.key`. Gateway akan
 gagal start jika sertifikat tidak tersedia. Atur `GATEWAY_HTTPS_PORT`,
