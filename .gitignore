@@ -6,3 +6,7 @@
 !**/.env.example
 infra/gateway/certs/*
 !infra/gateway/certs/.gitkeep
+backups/
+*.agekey
+*.dump
+*.dump.age
