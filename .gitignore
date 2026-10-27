@@ -10,3 +10,4 @@ backups/
 *.agekey
 *.dump
 *.dump.age
+infra/auth/*.pem
