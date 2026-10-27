@@ -4,6 +4,9 @@ Setup sesuai dokumen dia-backend/02-backend.md.
 
 ## Menjalankan dan mengetes backend
 
+Panduan khusus acceptance dan smoke test autentikasi PBI-01 ada di
+[PBI-01-auth-testing.md](../../PBI-01-auth-testing.md).
+
 ### Persiapan (PowerShell)
 
 Jalankan perintah dari folder utama repository (`dia-backend`):
