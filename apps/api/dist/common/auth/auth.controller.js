@@ -14,6 +14,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthController = void 0;
 const common_1 = require("@nestjs/common");
+const throttler_1 = require("@nestjs/throttler");
 const auth_service_1 = require("./auth.service");
 const sso_strategy_1 = require("./sso-strategy");
 const staff_login_dto_1 = require("./dto/staff-login.dto");
@@ -37,9 +38,7 @@ let AuthController = class AuthController {
             response.redirect(common_1.HttpStatus.FOUND, this.frontendUrl('FRONTEND_LOGIN_SUCCESS_URL'));
         }
         catch (error) {
-            const result = error instanceof common_1.ForbiddenException && error.message === 'AKUN_TIDAK_AKTIF'
-                ? 'akun_tidak_aktif'
-                : 'sso_gangguan';
+            const result = this.ssoFailureCode(error);
             const failure = new URL(this.frontendUrl('FRONTEND_LOGIN_FAILURE_URL'));
             failure.searchParams.set('error', result);
             response.redirect(common_1.HttpStatus.FOUND, failure.href);
@@ -130,6 +129,16 @@ let AuthController = class AuthController {
         if (!allowed.includes(normalized))
             throw new common_1.ForbiddenException('Origin tidak diizinkan');
     }
+    ssoFailureCode(error) {
+        if (error instanceof sso_strategy_1.SsoProviderDeniedException)
+            return 'kredensial';
+        if (error instanceof common_1.ForbiddenException && error.message === 'AKUN_TIDAK_AKTIF') {
+            return 'akun_tidak_aktif';
+        }
+        if (error instanceof common_1.ServiceUnavailableException)
+            return 'sso_gangguan';
+        return 'sso_gagal';
+    }
     frontendUrl(name) {
         const value = process.env[name];
         if (!value)
@@ -144,6 +153,8 @@ let AuthController = class AuthController {
 exports.AuthController = AuthController;
 __decorate([
     (0, common_1.Get)('sso/login'),
+    (0, common_1.UseGuards)(throttler_1.ThrottlerGuard),
+    (0, throttler_1.Throttle)({ default: { limit: 10, ttl: 60_000 } }),
     __param(0, (0, common_1.Res)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -159,6 +170,8 @@ __decorate([
 ], AuthController.prototype, "ssoCallback", null);
 __decorate([
     (0, common_1.Post)('staff/login'),
+    (0, common_1.UseGuards)(throttler_1.ThrottlerGuard),
+    (0, throttler_1.Throttle)({ default: { limit: 5, ttl: 60_000 } }),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Req)()),

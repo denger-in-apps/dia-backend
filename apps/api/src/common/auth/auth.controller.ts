@@ -10,11 +10,13 @@ import {
   Post,
   Req,
   Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
-import { SsoStrategy, SSO_STRATEGY } from './sso-strategy';
+import { SsoProviderDeniedException, SsoStrategy, SSO_STRATEGY } from './sso-strategy';
 import { StaffLoginDto } from './dto/staff-login.dto';
 import { CurrentUser } from './current-user.decorator';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -29,6 +31,8 @@ export class AuthController {
   ) {}
 
   @Get('sso/login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async ssoLogin(@Res() response: Response): Promise<void> {
     const url = await this.sso.createAuthorizationUrl();
     response.redirect(HttpStatus.FOUND, url.href);
@@ -46,9 +50,7 @@ export class AuthController {
       this.setRefreshCookie(response, session);
       response.redirect(HttpStatus.FOUND, this.frontendUrl('FRONTEND_LOGIN_SUCCESS_URL'));
     } catch (error) {
-      const result = error instanceof ForbiddenException && error.message === 'AKUN_TIDAK_AKTIF'
-        ? 'akun_tidak_aktif'
-        : 'sso_gangguan';
+      const result = this.ssoFailureCode(error);
       const failure = new URL(this.frontendUrl('FRONTEND_LOGIN_FAILURE_URL'));
       failure.searchParams.set('error', result);
       response.redirect(HttpStatus.FOUND, failure.href);
@@ -56,6 +58,8 @@ export class AuthController {
   }
 
   @Post('staff/login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async staffLogin(
     @Body() body: unknown,
@@ -162,6 +166,15 @@ export class AuthController {
         try { return new URL(item).origin; } catch { return ''; }
       });
     if (!allowed.includes(normalized)) throw new ForbiddenException('Origin tidak diizinkan');
+  }
+
+  private ssoFailureCode(error: unknown): string {
+    if (error instanceof SsoProviderDeniedException) return 'kredensial';
+    if (error instanceof ForbiddenException && error.message === 'AKUN_TIDAK_AKTIF') {
+      return 'akun_tidak_aktif';
+    }
+    if (error instanceof ServiceUnavailableException) return 'sso_gangguan';
+    return 'sso_gagal';
   }
 
   private frontendUrl(name: string): string {

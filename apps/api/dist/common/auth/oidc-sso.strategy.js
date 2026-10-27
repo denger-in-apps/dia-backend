@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const oidc = require("openid-client");
 const ioredis_1 = require("ioredis");
 const sso_state_lifecycle_1 = require("./sso-state.lifecycle");
+const sso_strategy_1 = require("./sso-strategy");
 const common_2 = require("@nestjs/common");
 let OidcSsoStrategy = class OidcSsoStrategy {
     constructor(redis) {
@@ -59,11 +60,17 @@ let OidcSsoStrategy = class OidcSsoStrategy {
         catch {
             throw new common_1.UnauthorizedException('Sesi SSO tidak valid');
         }
-        if (Date.now() - loginState.issuedAt > 10 * 60 * 1000) {
+        if (!loginState ||
+            loginState.state !== state ||
+            typeof loginState.nonce !== 'string' ||
+            typeof loginState.codeVerifier !== 'string' ||
+            !Number.isSafeInteger(loginState.issuedAt) ||
+            loginState.issuedAt > Date.now() + 30_000 ||
+            Date.now() - loginState.issuedAt > 10 * 60 * 1000) {
             throw new common_1.UnauthorizedException('Sesi SSO kedaluwarsa');
         }
         if (typeof query.error === 'string')
-            throw new common_1.UnauthorizedException('Login SSO dibatalkan');
+            throw new sso_strategy_1.SsoProviderDeniedException();
         if (typeof query.code !== 'string' || query.code.length > 4096) {
             throw new common_1.UnauthorizedException('Kode SSO tidak valid');
         }

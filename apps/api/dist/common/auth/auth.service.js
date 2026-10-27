@@ -88,6 +88,9 @@ let AuthService = class AuthService {
         return this.issueSession({ id: student.id, role: 'MAHASISWA' }, ip, userAgent);
     }
     async refresh(rawToken, ip, userAgent) {
+        if (typeof rawToken !== 'string' || rawToken.length === 0) {
+            throw new common_1.UnauthorizedException('Sesi tidak valid atau kedaluwarsa');
+        }
         const tokenHash = this.hashToken(rawToken);
         const client = await this.pool.connect();
         let transactionOpen = false;

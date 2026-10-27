@@ -6,7 +6,7 @@ import {
 import * as oidc from 'openid-client';
 import Redis from 'ioredis';
 import { AUTH_REDIS } from './sso-state.lifecycle';
-import { SsoStrategy } from './sso-strategy';
+import { SsoProviderDeniedException, SsoStrategy } from './sso-strategy';
 import { Inject } from '@nestjs/common';
 
 interface OidcLoginState {
@@ -74,10 +74,18 @@ export class OidcSsoStrategy implements SsoStrategy {
     } catch {
       throw new UnauthorizedException('Sesi SSO tidak valid');
     }
-    if (Date.now() - loginState.issuedAt > 10 * 60 * 1000) {
+    if (
+      !loginState ||
+      loginState.state !== state ||
+      typeof loginState.nonce !== 'string' ||
+      typeof loginState.codeVerifier !== 'string' ||
+      !Number.isSafeInteger(loginState.issuedAt) ||
+      loginState.issuedAt > Date.now() + 30_000 ||
+      Date.now() - loginState.issuedAt > 10 * 60 * 1000
+    ) {
       throw new UnauthorizedException('Sesi SSO kedaluwarsa');
     }
-    if (typeof query.error === 'string') throw new UnauthorizedException('Login SSO dibatalkan');
+    if (typeof query.error === 'string') throw new SsoProviderDeniedException();
     if (typeof query.code !== 'string' || query.code.length > 4096) {
       throw new UnauthorizedException('Kode SSO tidak valid');
     }

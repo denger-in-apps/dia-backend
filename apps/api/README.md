@@ -67,6 +67,8 @@ docker compose logs -f api
 
 Log `Nest application successfully started` menandakan API berhasil mulai.
 Log migrasi dapat dilihat terpisah dengan `docker compose logs migrate`.
+Login staf hanya tersedia untuk akun yang sudah diprovisikan; pendaftaran dan
+reset password staf berada di luar subtask login ini.
 
 ### Menjalankan unit test
 
@@ -83,6 +85,72 @@ Untuk memastikan TypeScript dapat dikompilasi:
 ```powershell
 npm run build
 ```
+
+Unit test auth memakai OIDC strategy dan layanan database palsu, jadi tidak
+memerlukan akun kampus. Untuk menjalankan tes e2e aplikasi terhadap service
+Compose yang aktif:
+
+```powershell
+docker compose exec api npm run test:e2e -- --runInBand
+```
+
+Untuk membuat akun login uji lokal dan menjalankan smoke test auth end-to-end,
+dari root repository jalankan:
+
+```powershell
+docker compose exec -e DEV_AUTH_SEED=true -e DEV_AUTH_PASSWORD='DengerTest-2026!' api npm run seed:dev-auth
+docker compose exec -e DEV_AUTH_PASSWORD='DengerTest-2026!' api npm run test:auth:smoke
+```
+
+Seeder hanya berjalan saat `NODE_ENV=development` dan `DEV_AUTH_SEED=true`.
+Seeder menyiapkan `admin.test@denger.local`, `psikolog.test@denger.local`, serta
+mahasiswa aktif `TEST-DEV-0001`; kata sandi di-hash dengan Argon2id. Jalankan
+ulang seed untuk mengatur ulang password akun uji. Password tersebut khusus
+development, jangan dipakai ulang untuk akun nyata.
+
+### Uji login OIDC dengan provider
+
+Isi nilai berikut di `.env` dari detail provider OIDC yang dipakai. Jangan
+commit client secret:
+
+```dotenv
+OIDC_ISSUER_URL=https://issuer-provider
+OIDC_CLIENT_ID=client-id
+OIDC_CLIENT_SECRET=client-secret
+OIDC_REDIRECT_URI=https://localhost:18443/api/v1/auth/sso/callback
+OIDC_NIM_CLAIM=nim
+```
+
+Daftarkan nilai `OIDC_REDIRECT_URI` yang sama persis sebagai callback URL di
+provider. Jika memakai port gateway selain `18443`, ganti portnya di kedua
+tempat. Provider harus menerbitkan klaim `sub`, `email`, `email_verified: true`,
+dan klaim NIM sesuai `OIDC_NIM_CLAIM`.
+
+Untuk prototipe ini, akun mahasiswa harus sudah memiliki baris dengan
+`status_aktif = true`; integrasi pemeriksaan status akademik merupakan bagian
+PBI-02 dan belum dipanggil oleh login. Buat akun uji lokal dengan NIM/email
+khusus melalui database owner. Sesuaikan NIM dan email dengan klaim akun OIDC:
+
+```powershell
+docker compose exec postgres psql -U denger_owner -d denger -c "INSERT INTO mahasiswa (nim, nama, email, status_aktif) VALUES ('20260001', 'Mahasiswa Uji', 'mahasiswa.uji@example.edu', true) ON CONFLICT (nim) DO UPDATE SET status_aktif = true"
+```
+
+Lalu buka:
+
+```text
+https://localhost:18443/api/v1/auth/sso/login
+```
+
+Setelah callback berhasil, API menyimpan refresh token dalam cookie aman dan
+mengarahkan pengguna ke `FRONTEND_LOGIN_SUCCESS_URL`. Frontend kemudian meminta
+`POST /api/v1/auth/refresh` dengan cookie (`credentials: 'include'`) untuk
+mendapatkan access token. Atur `CORS_ORIGINS` dan URL redirect sesuai origin
+frontend yang digunakan. Login SSO sungguhan memerlukan issuer dan client
+credentials dari provider; unit test tidak menghubungi provider eksternal.
+Jika provider menolak login, callback mengarahkan frontend dengan `error=kredensial`;
+gangguan provider memakai `error=sso_gangguan`; akun mahasiswa nonaktif memakai
+`error=akun_tidak_aktif`; callback atau klaim yang tidak valid memakai
+`error=sso_gagal`.
 
 `npm run start` menjalankan API langsung di host, bukan di container. Jalur ini
 memerlukan environment lokal seperti `DATABASE_URL`, key enkripsi, key JWT, dan
@@ -138,6 +206,11 @@ ke penyimpanan terpisah agar tetap tersedia bila host lokal gagal.
 - `GET /api/v1/auth/sso/login` memulai OIDC Authorization Code + PKCE; callback adalah `GET /api/v1/auth/sso/callback`.
 - `POST /api/v1/auth/refresh` merotasi refresh cookie; `POST /api/v1/auth/logout` mencabut seluruh keluarga token.
 - `GET /api/v1/auth/me` memerlukan `Authorization: Bearer <accessToken>`.
+
+Endpoint login staf dibatasi 5 percobaan per menit dan awal login SSO 10
+percobaan per menit per alamat IP (rate limit in-memory untuk prototipe satu
+instance). Refresh tanpa cookie valid membalas 401; refresh dan logout memerlukan
+header `Origin` yang cocok dengan salah satu nilai `CORS_ORIGINS`.
 
 Access token RS256 berlaku 15 menit; refresh token acak disimpan hanya sebagai
 SHA-256 hash dan dikirim lewat cookie `HttpOnly`, `Secure`, `SameSite=Lax`.

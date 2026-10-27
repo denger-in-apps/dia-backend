@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { ThrottlerModule } from '@nestjs/throttler';
 import Redis from 'ioredis';
 import { CryptoModule } from '../crypto/crypto.module';
 import { AuthController } from './auth.controller';
@@ -20,6 +21,7 @@ function requiredFile(name: string): string {
 @Module({
   imports: [
     CryptoModule,
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     JwtModule.registerAsync({
       useFactory: () => ({
         privateKey: requiredFile('JWT_PRIVATE_KEY_PATH'),

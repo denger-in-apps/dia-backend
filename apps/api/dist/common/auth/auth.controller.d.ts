@@ -16,5 +16,6 @@ export declare class AuthController {
     private refreshCookieOptions;
     private publicSession;
     private assertTrustedOrigin;
+    private ssoFailureCode;
     private frontendUrl;
 }
