@@ -10,6 +10,7 @@ exports.AuthModule = void 0;
 const fs_1 = require("fs");
 const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
+const throttler_1 = require("@nestjs/throttler");
 const ioredis_1 = require("ioredis");
 const crypto_module_1 = require("../crypto/crypto.module");
 const auth_controller_1 = require("./auth.controller");
@@ -32,6 +33,7 @@ exports.AuthModule = AuthModule = __decorate([
     (0, common_1.Module)({
         imports: [
             crypto_module_1.CryptoModule,
+            throttler_1.ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
             jwt_1.JwtModule.registerAsync({
                 useFactory: () => ({
                     privateKey: requiredFile('JWT_PRIVATE_KEY_PATH'),

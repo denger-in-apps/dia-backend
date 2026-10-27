@@ -108,10 +108,13 @@ export class AuthService {
   }
 
   async refresh(
-    rawToken: string,
+    rawToken: string | undefined,
     ip: string | undefined,
     userAgent: string | undefined,
   ): Promise<AuthSession> {
+    if (typeof rawToken !== 'string' || rawToken.length === 0) {
+      throw new UnauthorizedException('Sesi tidak valid atau kedaluwarsa');
+    }
     const tokenHash = this.hashToken(rawToken);
     const client = await this.pool.connect();
     let transactionOpen = false;

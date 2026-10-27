@@ -10,7 +10,7 @@ export declare class AuthService {
     constructor(pool: Pool, jwt: JwtService, encryption: EncryptionService);
     loginStaff(role: Extract<UserRole, 'PSIKOLOG' | 'DOSEN_ADMIN'>, email: string, password: string, otp: string | undefined, ip: string | undefined, userAgent: string | undefined): Promise<AuthSession>;
     loginStudent(identity: StudentIdentity, ip: string | undefined, userAgent: string | undefined): Promise<AuthSession>;
-    refresh(rawToken: string, ip: string | undefined, userAgent: string | undefined): Promise<AuthSession>;
+    refresh(rawToken: string | undefined, ip: string | undefined, userAgent: string | undefined): Promise<AuthSession>;
     logout(rawToken: string | undefined): Promise<void>;
     getCurrentUser(user: AuthenticatedUser): Promise<AuthProfile | null>;
     private issueSession;
