@@ -4,8 +4,11 @@ Setup sesuai dokumen dia-backend/02-backend.md.
 
 ## Docker Compose (development)
 
-1. Dari root repository jalankan `docker compose up --build`.
-2. API tersedia di `http://localhost:3000`; migrasi berjalan sebelum API start.
+1. Opsional: salin `.env.example` di root repo ke `.env` dan ganti kredensial
+   untuk lingkungan selain development lokal.
+2. Dari root repository jalankan `docker compose up --build`.
+3. Compose menunggu migrasi selesai sebelum menjalankan API di
+   `http://localhost:3000`.
 
 Compose menyiapkan PostgreSQL, Redis, dan API. Data database/cache disimpan di
 named volumes. `docker compose down -v` menghapus container dan data lokal.
@@ -18,9 +21,14 @@ named volumes. `docker compose down -v` menghapus container dan data lokal.
 - `npm run migration:generate -- src/database/migrations/NamaMigrasi` membuat
   draft migrasi dari entity TypeORM.
 
-`InitialCoreSchema` adalah baseline sementara berdasarkan entitas dan constraint
-di `02-backend.md`. ERD kanonis (`04-database.md`) belum tersedia di repo;
-lengkapi baseline setelah ERD disepakati. `synchronize` tetap nonaktif.
+Skema `0001_init.sql` mengikuti DDL di `04-database.md`; migrasi TypeORM
+membacanya dari `src/database/sql`. Salinan referensi tersedia di
+`infra/db/schema.sql`. Migrasi berikutnya membuat role `denger_app` dan
+`denger_report`; `APP_DB_PASSWORD` dan `REPORT_DB_PASSWORD` wajib diset untuk
+migrasi. Service `migrate` memakai `MIGRATION_DATABASE_URL` milik owner DB;
+service API hanya menerima `DATABASE_URL` untuk `denger_app` dan
+`REPORT_DATABASE_URL` untuk `denger_report`. Kredensial default Compose hanya
+untuk development lokal. `synchronize` tetap nonaktif.
 
 ## Scripts
 - start:dev

@@ -1,11 +1,10 @@
 import { DataSource } from 'typeorm';
-import { join } from 'path';
 
-export const AppDataSource = new DataSource({
+export default new DataSource({
   type: 'postgres',
-  url: process.env.DATABASE_URL,
-  entities: [join(__dirname, '..', '..', '**', '*.entity{.ts,.js}')],
-  migrations: [join(__dirname, 'migrations', '*{.ts,.js}')],
+  url: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+  migrations: [__dirname + '/migrations/*.{ts,js}'],
+  migrationsTableName: 'schema_migrations',
   synchronize: false,
-  logging: false,
+  logging: ['error', 'migration'],
 });

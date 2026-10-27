@@ -4,11 +4,12 @@ services:
       context: ./apps/api
       dockerfile: Dockerfile
     working_dir: /app
-    command: sh -c "npm run migration:run && npm run start:dev"
+    command: npm run start:dev
     environment:
       NODE_ENV: development
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-dia}:${POSTGRES_PASSWORD:-dia_dev_only}@postgres:5432/${POSTGRES_DB:-dia}
+      DATABASE_URL: ${DATABASE_URL:-postgres://denger_app:${APP_DB_PASSWORD:-dia_app_dev_only}@postgres:5432/${POSTGRES_DB:-denger}}
+      REPORT_DATABASE_URL: postgres://denger_report:${REPORT_DB_PASSWORD:-dia_report_dev_only}@postgres:5432/${POSTGRES_DB:-denger}
       REDIS_HOST: redis
       REDIS_PORT: 6379
     ports:
@@ -17,17 +18,36 @@ services:
       - ./apps/api:/app
       - api_node_modules:/app/node_modules
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
+
+  migrate:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: npm run migration:run
+    environment:
+      NODE_ENV: development
+      MIGRATION_DATABASE_URL: postgres://denger_owner:${POSTGRES_PASSWORD:-dia_owner_dev_only}@postgres:5432/${POSTGRES_DB:-denger}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-dia_app_dev_only}
+      REPORT_DB_PASSWORD: ${REPORT_DB_PASSWORD:-dia_report_dev_only}
+    volumes:
+      - ./apps/api:/app
+      - api_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-dia}
-      POSTGRES_USER: ${POSTGRES_USER:-dia}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dia_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-denger}
+      POSTGRES_USER: denger_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dia_owner_dev_only}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
