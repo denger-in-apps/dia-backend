@@ -197,6 +197,14 @@ interface AkademikClient {
 - Tidak aktif → `403 AKUN_TIDAK_AKTIF` (use case alt 3.a). Pembatasan sebagian ("dibatasi aksesnya", FR-MHS-02) sebaiknya mengizinkan **Direktori Sumber Daya** dan info hotline tetap terbuka.
 - ⚠️ **Dependensi eksternal:** spesifikasi endpoint API akademik belum ada di proposal. Mulai dengan `MockAkademikClient` (WireMock) dan minta dokumentasi resmi ke pihak kampus di minggu pertama.
 
+### Implementasi PBI-02 saat ini
+
+- `AkademikClient` tersedia melalui `AkademikModule`: `mock` untuk pengembangan dan `http` untuk integrasi REST.
+- Mode HTTP memanggil `AKADEMIK_STATUS_URL?nim=...` dengan bearer token dan mengharapkan JSON `{ "aktif": boolean }`; batas waktu 3 detik. Format ini asumsi sementara sampai kontrak resmi API kampus diterima.
+- Cache Redis `akademik:{nim}` berlaku 24 jam. Saat cache/API gagal, akun aktif hanya boleh memakai hasil DB jika `terakhir_verifikasi_at` masih berumur maksimal 24 jam. Akun baru gagal tertutup dengan 503 bila tak dapat diverifikasi.
+- Status diperiksa saat callback SSO dan pada akses mahasiswa setelah verifikasi terakhir kedaluwarsa. Status tidak aktif dibalas `403 AKUN_TIDAK_AKTIF`; refresh token juga ditolak oleh pemeriksaan status akun.
+- Untuk simulasi lokal, set `AKADEMIK_MODE=mock` dan masukkan NIM yang aktif dalam `AKADEMIK_MOCK_ACTIVE_NIMS` (pisahkan dengan koma). Produksi wajib `AKADEMIK_MODE=http`.
+
 ---
 
 ## 7. RBAC (PBI-04) — SCRUM-215

@@ -4,8 +4,10 @@ Setup sesuai dokumen dia-backend/02-backend.md.
 
 ## Menjalankan dan mengetes backend
 
-Panduan khusus acceptance dan smoke test autentikasi PBI-01 ada di
-[PBI-01-auth-testing.md](../../PBI-01-auth-testing.md).
+Panduan acceptance dan smoke test:
+
+- [PBI-01 autentikasi](PBI-01-auth-testing.md)
+- [PBI-02 verifikasi mahasiswa aktif](PBI-02-verifikasi-mahasiswa-aktif.md)
 
 ### Persiapan (PowerShell)
 
@@ -129,10 +131,21 @@ provider. Jika memakai port gateway selain `18443`, ganti portnya di kedua
 tempat. Provider harus menerbitkan klaim `sub`, `email`, `email_verified: true`,
 dan klaim NIM sesuai `OIDC_NIM_CLAIM`.
 
-Untuk prototipe ini, akun mahasiswa harus sudah memiliki baris dengan
-`status_aktif = true`; integrasi pemeriksaan status akademik merupakan bagian
-PBI-02 dan belum dipanggil oleh login. Buat akun uji lokal dengan NIM/email
-khusus melalui database owner. Sesuaikan NIM dan email dengan klaim akun OIDC:
+Verifikasi PBI-02 dijalankan pada callback SSO. Untuk mode mock lokal,
+cantumkan NIM uji pada `AKADEMIK_MOCK_ACTIVE_NIMS` di `.env` (pisahkan NIM
+dengan koma), kemudian mulai ulang API. NIM lain dianggap tidak aktif. Contoh:
+
+```dotenv
+AKADEMIK_MODE=mock
+AKADEMIK_MOCK_ACTIVE_NIMS=20260001
+```
+
+Pada login pertama, sistem memverifikasi NIM lewat adapter akademik, lalu
+membuat/memperbarui baris mahasiswa dan waktu verifikasinya. Status tidak aktif
+mendapat `error=akun_tidak_aktif`. Untuk integrasi HTTP, gunakan
+`AKADEMIK_MODE=http`, `AKADEMIK_STATUS_URL`, dan `AKADEMIK_API_TOKEN`; API
+sementara diharapkan menerima `?nim=...` dan mengembalikan `{ "aktif": true }`.
+Kontrak tersebut harus disesuaikan dengan dokumentasi resmi kampus.
 
 ```powershell
 docker compose exec postgres psql -U denger_owner -d denger -c "INSERT INTO mahasiswa (nim, nama, email, status_aktif) VALUES ('20260001', 'Mahasiswa Uji', 'mahasiswa.uji@example.edu', true) ON CONFLICT (nim) DO UPDATE SET status_aktif = true"
@@ -223,9 +236,9 @@ Jika refresh token lama digunakan kembali, semua token dalam keluarganya dicabut
 
 Untuk mengaktifkan SSO, isi `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`,
 `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, dan nama klaim NIM dari IT kampus.
-Klaim email harus ditandai terverifikasi. Status mahasiswa dicek fail-closed
-melalui `mahasiswa.status_aktif`; PBI-02 perlu mengisi status hasil verifikasi
-akademik sebelum sesi diterbitkan. Akun staf harus lebih dulu diprovisikan;
+Klaim email harus ditandai terverifikasi. Status mahasiswa diverifikasi saat
+login dan maksimal setiap 24 jam, serta dibaca dari `mahasiswa.status_aktif`
+pada setiap request mahasiswa. Akun staf harus lebih dulu diprovisikan;
 psikolog hanya dapat login setelah `status_akun = 'AKTIF'`.
 
 Untuk deployment, set `TLS_MODE=production` dan pasang sertifikat tepercaya

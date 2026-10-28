@@ -24,6 +24,7 @@ describe('AuthService', () => {
       pool as unknown as Pool,
       jwt as unknown as JwtService,
       encryption as unknown as EncryptionService,
+      { wajibAktif: jest.fn().mockResolvedValue({ aktif: true, sumber: 'api' }) } as never,
     );
     delete process.env.REFRESH_TOKEN_TTL_SECONDS;
   });

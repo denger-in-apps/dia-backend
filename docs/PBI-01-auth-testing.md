@@ -116,7 +116,81 @@ https://localhost:18443/api/v1
 Login staf dibatasi 5 percobaan per menit per alamat IP. Endpoint awal login OIDC
 dibatasi 10 percobaan per menit per IP.
 
-## 5. Uji login mahasiswa dengan provider OIDC
+## 5. Uji verifikasi mahasiswa aktif (PBI-02)
+
+Pakai mahasiswa yang sudah disiapkan seeder PBI-01: `TEST-DEV-0001` /
+`mahasiswa.test@denger.local`. Seeder membuatnya aktif. PBI-02 menentukan status
+login dari adapter akademik mock, jadi NIM tersebut juga harus dimasukkan ke
+daftar mock di `.env`. Siapkan provider OIDC development dengan klaim `sub`,
+email terverifikasi, dan NIM `TEST-DEV-0001`.
+
+Jalankan seeder yang ada di bagian 3 bila belum dijalankan:
+
+```powershell
+docker compose exec -e DEV_AUTH_SEED=true -e DEV_AUTH_PASSWORD='DengerTest-2026!' api npm run seed:dev-auth
+```
+
+Tambahkan satu NIM aktif ke `.env`:
+
+```dotenv
+AKADEMIK_MODE=mock
+AKADEMIK_MOCK_ACTIVE_NIMS=TEST-DEV-0001
+```
+
+Isi konfigurasi OIDC di bagian berikut, lalu muat ulang API agar konfigurasi
+dibaca ulang:
+
+```powershell
+docker compose up -d --force-recreate api
+```
+
+Login melalui `https://localhost:18443/api/v1/auth/sso/login` dengan pengguna
+uji yang memiliki klaim NIM `TEST-DEV-0001`. Setelah login sukses, periksa
+status hasil verifikasi tersimpan:
+
+```powershell
+docker compose exec postgres psql -U denger_owner -d denger -c "SELECT nim, status_aktif, terakhir_verifikasi_at FROM mahasiswa WHERE nim = 'TEST-DEV-0001'"
+```
+
+Hasil yang diharapkan: satu baris dengan `status_aktif = t` dan waktu verifikasi
+terisi. Callback sukses juga menerbitkan sesi (redirect ke URL sukses).
+
+Untuk uji mahasiswa tidak aktif, kosongkan daftar NIM aktif, muat ulang API,
+hapus cache NIM seed, lalu login lagi dengan akun OIDC yang sama (NIM
+`TEST-DEV-0001`):
+
+```dotenv
+AKADEMIK_MOCK_ACTIVE_NIMS=
+```
+
+```powershell
+docker compose up -d --force-recreate api
+docker compose exec redis redis-cli DEL akademik:TEST-DEV-0001
+```
+
+Hasil yang diharapkan: tidak ada sesi dan frontend diarahkan dengan
+`error=akun_tidak_aktif`. Baris mahasiswa seed tetap ada, tetapi nilai
+`status_aktif` diperbarui menjadi `false`. Cek dengan:
+
+```powershell
+docker compose exec postgres psql -U denger_owner -d denger -c "SELECT nim, status_aktif, terakhir_verifikasi_at FROM mahasiswa WHERE nim = 'TEST-DEV-0001'"
+```
+
+Untuk memastikan status aktif dicabut dan token yang sudah terbit tidak lagi
+diterima, login saat mock masih menganggap `TEST-DEV-0001` aktif dan ambil access
+token dari sesi. Lalu jalankan:
+
+```powershell
+docker compose exec postgres psql -U denger_owner -d denger -c "UPDATE mahasiswa SET status_aktif = false WHERE nim = 'TEST-DEV-0001'"
+curl.exe -k -i https://localhost:18443/api/v1/auth/me -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+Hasil yang diharapkan: HTTP `403` dengan `AKUN_TIDAK_AKTIF`. Login ulang
+memerlukan verifikasi akademik yang menyatakan mahasiswa aktif. Untuk memulihkan
+akun seed, kembalikan `AKADEMIK_MOCK_ACTIVE_NIMS=TEST-DEV-0001`, recreate API,
+hapus key cache `akademik:TEST-DEV-0001`, lalu login SSO lagi.
+
+### Login SSO OIDC
 
 Tes ini memerlukan provider OIDC yang dapat dijangkau API. Isi nilai berikut di
 `.env` memakai konfigurasi provider development yang disediakan kampus atau
@@ -135,10 +209,10 @@ berbeda, ubah URI tersebut dan callback URL di provider. Provider harus
 menerbitkan klaim `sub`, `email`, `email_verified: true`, dan klaim NIM yang
 sesuai dengan `OIDC_NIM_CLAIM`.
 
-Profil mahasiswa harus sudah aktif sebelum sesi diterbitkan. Seeder menyediakan
-profil NIM `TEST-DEV-0001` dengan email `mahasiswa.test@denger.local`; atur akun
-OIDC development agar klaim NIM-nya `TEST-DEV-0001`. Pemeriksaan status akademik
-otomatis belum menjadi bagian PBI-01 dan direncanakan di PBI-02.
+Atur akun OIDC development agar klaim NIM-nya `TEST-DEV-0001`. Pemeriksaan ini
+disimulasikan oleh adapter
+mock; untuk menguji integrasi kampus yang sesungguhnya, gunakan mode `http`
+setelah kontrak API akademik resmi tersedia.
 
 Setelah mengubah `.env`, muat ulang API:
 
