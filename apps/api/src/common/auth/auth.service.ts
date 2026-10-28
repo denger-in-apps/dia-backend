@@ -12,6 +12,7 @@ import { EncryptionService } from '../crypto/encryption.service';
 import { DATABASE_POOL } from '../../database/database.module';
 import { AuthProfile, AuthSession, AuthenticatedUser, UserRole } from './auth.types';
 import { StudentIdentity } from './oidc-sso.strategy';
+import { AkademikService } from '../../modules/akademik/akademik.service';
 
 interface RefreshRow {
   id: string;
@@ -32,6 +33,7 @@ export class AuthService {
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly jwt: JwtService,
     private readonly encryption: EncryptionService,
+    private readonly akademik: AkademikService,
   ) {}
 
   async loginStaff(
@@ -79,20 +81,23 @@ export class AuthService {
     ip: string | undefined,
     userAgent: string | undefined,
   ): Promise<AuthSession> {
+    const academicStatus = await this.akademik.wajibAktif(identity.nim);
     let result;
     try {
       result = await this.pool.query(
-        `INSERT INTO mahasiswa (sso_subject, nim, email, nama)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO mahasiswa (sso_subject, nim, email, nama, status_aktif, terakhir_verifikasi_at)
+         VALUES ($1, $2, $3, $4, $5, now())
          ON CONFLICT (nim) DO UPDATE
            SET sso_subject = EXCLUDED.sso_subject,
                email = EXCLUDED.email,
                nama = EXCLUDED.nama,
+               status_aktif = EXCLUDED.status_aktif,
+               terakhir_verifikasi_at = now(),
                updated_at = now()
          WHERE mahasiswa.deleted_at IS NULL
            AND (mahasiswa.sso_subject IS NULL OR mahasiswa.sso_subject = EXCLUDED.sso_subject)
          RETURNING id_mahasiswa::text AS id, status_aktif, deleted_at`,
-        [identity.subject, identity.nim, identity.email, identity.name],
+        [identity.subject, identity.nim, identity.email, identity.name, academicStatus.aktif],
       );
     } catch {
       throw new UnauthorizedException('Akun SSO mahasiswa tidak dapat diverifikasi');
@@ -273,6 +278,25 @@ export class AuthService {
     id: string,
     role: UserRole,
   ): Promise<boolean> {
+    if (role === 'MAHASISWA') {
+      const result = await client.query<{
+        nim: string;
+        status_aktif: boolean;
+        terakhir_verifikasi_at: Date | null;
+      }>(
+        `SELECT nim, status_aktif, terakhir_verifikasi_at FROM mahasiswa
+         WHERE id_mahasiswa = $1 AND deleted_at IS NULL`,
+        [id],
+      );
+      const student = result.rows[0];
+      if (!student?.status_aktif) return false;
+      if (!student.terakhir_verifikasi_at ||
+          Date.now() - new Date(student.terakhir_verifikasi_at).getTime() >= 24 * 60 * 60 * 1000) {
+        const status = await this.akademik.verifikasi(student.nim);
+        return status.aktif;
+      }
+      return true;
+    }
     const sql: Record<UserRole, string> = {
       MAHASISWA: `SELECT 1 FROM mahasiswa WHERE id_mahasiswa = $1 AND status_aktif AND deleted_at IS NULL`,
       PSIKOLOG: `SELECT 1 FROM psikolog WHERE id_psikolog = $1 AND status_akun = 'AKTIF'`,

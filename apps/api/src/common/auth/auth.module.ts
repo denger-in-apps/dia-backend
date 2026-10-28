@@ -11,6 +11,7 @@ import { OidcSsoStrategy } from './oidc-sso.strategy';
 import { AUTH_REDIS, AuthRedisLifecycle } from './sso-state.lifecycle';
 import { RolesGuard } from './roles.guard';
 import { SSO_STRATEGY } from './sso-strategy';
+import { AkademikModule } from '../../modules/akademik/akademik.module';
 
 function requiredFile(name: string): string {
   const path = process.env[name];
@@ -21,6 +22,7 @@ function requiredFile(name: string): string {
 @Module({
   imports: [
     CryptoModule,
+    AkademikModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     JwtModule.registerAsync({
       useFactory: () => ({
