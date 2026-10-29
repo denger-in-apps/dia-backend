@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import Redis from 'ioredis';
@@ -59,6 +60,8 @@ function requiredFile(name: string): string {
     },
     JwtAuthGuard,
     RolesGuard,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
     {
       provide: AUTH_REDIS,
       useFactory: () => {
