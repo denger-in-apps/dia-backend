@@ -1,4 +1,10 @@
-export const USER_ROLES = ['MAHASISWA', 'PSIKOLOG', 'DOSEN_ADMIN'] as const;
+export const Role = {
+  MAHASISWA: 'MAHASISWA',
+  PSIKOLOG: 'PSIKOLOG',
+  DOSEN_ADMIN: 'DOSEN_ADMIN',
+} as const;
+
+export const USER_ROLES = [Role.MAHASISWA, Role.PSIKOLOG, Role.DOSEN_ADMIN] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export interface AccessTokenClaims {

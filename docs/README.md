@@ -8,6 +8,7 @@ Panduan acceptance dan smoke test:
 
 - [PBI-01 autentikasi](PBI-01-auth-testing.md)
 - [PBI-02 verifikasi mahasiswa aktif](PBI-02-verifikasi-mahasiswa-aktif.md)
+- [PBI-04 hak akses pengguna (RBAC)](PBI-04-rbac.md)
 
 ### Persiapan (PowerShell)
 

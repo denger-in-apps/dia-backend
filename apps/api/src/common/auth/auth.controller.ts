@@ -19,9 +19,9 @@ import { AuthService } from './auth.service';
 import { SsoProviderDeniedException, SsoStrategy, SSO_STRATEGY } from './sso-strategy';
 import { StaffLoginDto } from './dto/staff-login.dto';
 import { CurrentUser } from './current-user.decorator';
-import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthenticatedUser, AuthProfile, AuthSession } from './auth.types';
 import { validate } from 'class-validator';
+import { Public } from './public.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -31,6 +31,7 @@ export class AuthController {
   ) {}
 
   @Get('sso/login')
+  @Public()
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async ssoLogin(@Res() response: Response): Promise<void> {
@@ -39,6 +40,7 @@ export class AuthController {
   }
 
   @Get('sso/callback')
+  @Public()
   async ssoCallback(@Req() request: Request, @Res() response: Response): Promise<void> {
     try {
       const identity = await this.sso.completeAuthorization(request.query as Record<string, unknown>);
@@ -58,6 +60,7 @@ export class AuthController {
   }
 
   @Post('staff/login')
+  @Public()
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
@@ -97,6 +100,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async refresh(
     @Req() request: Request,
@@ -113,6 +117,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @Public()
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(@Req() request: Request, @Res() response: Response): Promise<void> {
     this.assertTrustedOrigin(request.get('origin'));
@@ -122,7 +127,6 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() user: AuthenticatedUser): Promise<AuthProfile> {
     const account = await this.auth.getCurrentUser(user);
     if (!account) throw new ForbiddenException('Akun tidak aktif');

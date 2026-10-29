@@ -211,10 +211,15 @@ interface AkademikClient {
 
 ```ts
 @Controller('psikolog/sos')
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.PSIKOLOG)
 export class SosPsikologController { ... }
 ```
+
+`JwtAuthGuard` dan `RolesGuard` dipasang secara global (PBI-04): semua endpoint
+memerlukan JWT secara default, sementara route publik harus memakai `@Public()`.
+Gunakan `@Roles(...)` untuk membatasi role; tanpa metadata role, semua role yang
+sudah terautentikasi dapat mengakses route tersebut. Endpoint health dan alur
+auth publik ditandai secara eksplisit.
 
 Matriks akses (turunan Tabel 3.4 proposal):
 

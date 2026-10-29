@@ -11,6 +11,8 @@ import { AccessTokenClaims, USER_ROLES } from './auth.types';
 import { Pool } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
 import { AkademikService } from '../../modules/akademik/akademik.service';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from './public.decorator';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -18,9 +20,16 @@ export class JwtAuthGuard implements CanActivate {
     private readonly jwtService: JwtService,
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly akademik: AkademikService,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
+
     const request = context.switchToHttp().getRequest();
     const authorization = request.headers.authorization;
     const match = typeof authorization === 'string' && authorization.match(/^Bearer\s+(.+)$/i);
@@ -43,18 +52,24 @@ export class JwtAuthGuard implements CanActivate {
       !claims.exp
     ) throw new UnauthorizedException('Token tidak valid atau sudah kedaluwarsa');
 
-    if (claims.role === 'MAHASISWA') {
-      const result = await this.pool.query<{
+    const accountQuery = claims.role === 'MAHASISWA'
+      ? `SELECT nim, status_aktif, terakhir_verifikasi_at FROM mahasiswa
+         WHERE id_mahasiswa = $1 AND deleted_at IS NULL`
+      : claims.role === 'PSIKOLOG'
+        ? `SELECT NULL::text AS nim, true AS status_aktif, NULL::timestamptz AS terakhir_verifikasi_at
+           FROM psikolog WHERE id_psikolog = $1 AND status_akun = 'AKTIF'`
+        : `SELECT NULL::text AS nim, true AS status_aktif, NULL::timestamptz AS terakhir_verifikasi_at
+           FROM dosen_admin WHERE id_dosen = $1 AND aktif`;
+    const result = await this.pool.query<{
         nim: string;
         status_aktif: boolean;
         terakhir_verifikasi_at: Date | null;
-      }>(
-        `SELECT nim, status_aktif, terakhir_verifikasi_at FROM mahasiswa
-         WHERE id_mahasiswa = $1 AND deleted_at IS NULL`,
-        [claims.sub],
-      );
-      const student = result.rows[0];
-      if (!student?.status_aktif) throw new ForbiddenException('AKUN_TIDAK_AKTIF');
+      }>(accountQuery, [claims.sub]);
+    const account = result.rows[0];
+    if (!account?.status_aktif) throw new ForbiddenException('AKUN_TIDAK_AKTIF');
+
+    if (claims.role === 'MAHASISWA') {
+      const student = account;
       if (!student.terakhir_verifikasi_at ||
           Date.now() - new Date(student.terakhir_verifikasi_at).getTime() >= 24 * 60 * 60 * 1000) {
         await this.akademik.wajibAktif(student.nim);
