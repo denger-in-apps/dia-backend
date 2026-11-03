@@ -11,6 +11,7 @@ Panduan acceptance dan smoke test:
 - [PBI-02 verifikasi mahasiswa aktif](PBI-02-verifikasi-mahasiswa-aktif.md)
 - [PBI-03 pengelolaan data pengguna](PBI-03-pengelolaan-data-pengguna.md)
 - [PBI-04 hak akses pengguna (RBAC)](PBI-04-rbac.md)
+- [PBI-05 tombol darurat Genta](PBI-05-tombol-darurat-genta.md)
 
 ### Persiapan (PowerShell)
 

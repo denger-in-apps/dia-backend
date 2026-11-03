@@ -7,9 +7,10 @@ import { AuthModule } from './common/auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { AkademikModule } from './modules/akademik/akademik.module';
 import { AkunModule } from './modules/akun/akun.module';
+import { GentaModule } from './modules/genta/genta.module';
 
 @Module({
-  imports: [HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule],
+  imports: [HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule, GentaModule],
   controllers: [AppController],
   providers: [AppService],
 })
