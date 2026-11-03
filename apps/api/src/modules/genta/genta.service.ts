@@ -15,6 +15,7 @@ import { gentaConfig, SITUASI_SOS, SituasiSos, tentukanPrioritas } from './genta
 import { BuatSosDto, LokasiDto } from './genta.dto';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
 import { SosLokasiService } from './sos-lokasi.service';
+import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
 
 export interface Hotline {
   label: string;
@@ -52,6 +53,7 @@ export class GentaService {
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly konfirmasi: SosKonfirmasiService,
     private readonly lokasi: SosLokasiService,
+    private readonly notifikasi: SosNotifikasiService,
   ) {}
 
   async mintaKonfirmasi(idMahasiswa: string) {
@@ -126,7 +128,19 @@ export class GentaService {
         ],
       );
       await client.query('COMMIT');
-      return { baru: true, sos: inserted.rows[0], hotline };
+      const sos = inserted.rows[0];
+      // Setelah commit: kabari psikolog seketika (FR-PSI-03). Tidak di-await agar respons ke
+      // mahasiswa tidak tertunda; service notifikasi tidak pernah melempar error.
+      void this.notifikasi.sosBaru({
+        id_sos: sos.id_sos,
+        prioritas: sos.prioritas,
+        situasi: sos.situasi,
+        situasi_label: sos.situasi ? SITUASI_SOS[sos.situasi].label : null,
+        waktu_kejadian: new Date(sos.waktu_kejadian).toISOString(),
+        lokasi_tersedia: sos.lokasi_izin,
+        perlu_verifikasi: perluVerifikasi,
+      });
+      return { baru: true, sos, hotline };
     } catch (error) {
       await client.query('ROLLBACK');
       if ((error as { code?: string }).code === UNIQUE_VIOLATION) {

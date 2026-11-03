@@ -7,6 +7,7 @@ import { CryptoModule } from '../crypto/crypto.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { AccessTokenService } from './access-token.service';
 import { OidcSsoStrategy } from './oidc-sso.strategy';
 import { RedisModule } from '../redis/redis.module';
 import { RolesGuard } from './roles.guard';
@@ -46,6 +47,7 @@ function requiredFile(name: string): string {
   controllers: [AuthController],
   providers: [
     AuthService,
+    AccessTokenService,
     OidcSsoStrategy,
     {
       provide: SSO_STRATEGY,
@@ -64,6 +66,6 @@ function requiredFile(name: string): string {
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
   // JwtModule diekspor agar modul lain (mis. token konfirmasi Genta) memakai kunci RS256 yang sama.
-  exports: [JwtModule, JwtAuthGuard, RolesGuard],
+  exports: [JwtModule, AccessTokenService, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { GentaService } from './genta.service';
 import { SosLokasiService } from './sos-lokasi.service';
+import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
 import { tentukanPrioritas } from './genta.constants';
 
@@ -37,6 +38,7 @@ describe('GentaService', () => {
   let riwayat: { per_jam: number; iseng: number; batal: number };
   let aktif: unknown;
   let lokasi: SosLokasiService;
+  let notifikasi: { sosBaru: jest.Mock };
 
   beforeAll(() => {
     process.env.ENCRYPTION_ACTIVE_KEY_ID = 'test';
@@ -77,7 +79,11 @@ describe('GentaService', () => {
       verifikasi: jest.fn().mockResolvedValue({ jti: 'jti-1' }),
       pakai: jest.fn().mockResolvedValue(true),
     };
-    service = new GentaService(pool as unknown as Pool, konfirmasi as unknown as SosKonfirmasiService, lokasi);
+    notifikasi = { sosBaru: jest.fn().mockResolvedValue({ penerima: 1, tanpa_jaga: false }) };
+    service = new GentaService(
+      pool as unknown as Pool, konfirmasi as unknown as SosKonfirmasiService, lokasi,
+      notifikasi as unknown as SosNotifikasiService,
+    );
   });
 
   const insertCall = () => client.query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO log_sos'));
@@ -227,5 +233,26 @@ describe('GentaService', () => {
     pool.query.mockResolvedValueOnce({ rows: [{ ...sosRow, status_penanganan: 'SELESAI' }] });
     await service.batalkan(mhs, sosRow.id_sos);
     expect(pool.query.mock.calls[0][0]).toContain('koordinat_lokasi_enc = NULL');
+  });
+
+  it('notifies psychologists after committing a new SOS, without student identity', async () => {
+    await service.buatSos(mhs, { ...dto, lokasi: { lat: 1, lng: 2 } });
+    expect(notifikasi.sosBaru).toHaveBeenCalledTimes(1);
+    const payload = notifikasi.sosBaru.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      prioritas: 'TINGGI', situasi: 'SERANGAN_PANIK', situasi_label: 'Saya mengalami serangan panik',
+      lokasi_tersedia: true, perlu_verifikasi: false,
+    });
+    expect(JSON.stringify(payload)).not.toContain(mhs);
+    const commitOrder = client.query.mock.invocationCallOrder[
+      client.query.mock.calls.findIndex(([sql]) => sql === 'COMMIT')
+    ];
+    expect(notifikasi.sosBaru.mock.invocationCallOrder[0]).toBeGreaterThan(commitOrder);
+  });
+
+  it('does not notify again when returning an existing active SOS', async () => {
+    aktif = { ...sosRow };
+    await service.buatSos(mhs, dto);
+    expect(notifikasi.sosBaru).not.toHaveBeenCalled();
   });
 });

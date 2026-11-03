@@ -10,6 +10,7 @@ import { AuthService } from './auth.service';
 import { SsoProviderDeniedException, SSO_STRATEGY } from './sso-strategy';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { AccessTokenService } from './access-token.service';
 import { RolesGuard } from './roles.guard';
 import { DATABASE_POOL } from '../../database/database.module';
 import { AkademikService } from '../../modules/akademik/akademik.service';
@@ -86,6 +87,7 @@ describe('AuthController', () => {
         { provide: JwtService, useValue: jwt },
         { provide: DATABASE_POOL, useValue: pool },
         { provide: AkademikService, useValue: { wajibAktif: jest.fn() } },
+        AccessTokenService,
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: RolesGuard },
       ],
