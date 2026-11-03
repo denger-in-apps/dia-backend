@@ -8,6 +8,7 @@ import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
 import { AUTH_REDIS } from '../../common/auth/sso-state.lifecycle';
+import { ensureRedisConnection } from '../../common/redis/redis.module';
 import { AKADEMIK_CLIENT, AkademikClient, AkademikStatus } from './akademik.types';
 
 const CACHE_SECONDS = 24 * 60 * 60;
@@ -24,7 +25,7 @@ export class AkademikService {
   async verifikasi(nim: string): Promise<AkademikStatus> {
     const key = this.cacheKey(nim);
     try {
-      if (this.redis.status === 'wait') await this.redis.connect();
+      await ensureRedisConnection(this.redis);
       const cached = await this.redis.get(key);
       if (cached === 'aktif' || cached === 'tidak_aktif') {
         return { aktif: cached === 'aktif', sumber: 'cache' };
@@ -37,7 +38,7 @@ export class AkademikService {
       const aktif = await this.client.cekStatus(nim);
       await this.persistStatus(nim, aktif);
       try {
-        if (this.redis.status === 'wait') await this.redis.connect();
+        await ensureRedisConnection(this.redis);
         await this.redis.set(key, aktif ? 'aktif' : 'tidak_aktif', 'EX', CACHE_SECONDS);
       } catch {
         // A DB status and verification timestamp remain available for bounded outage fallback.

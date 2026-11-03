@@ -3,13 +3,12 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
-import Redis from 'ioredis';
 import { CryptoModule } from '../crypto/crypto.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { OidcSsoStrategy } from './oidc-sso.strategy';
-import { AUTH_REDIS, AuthRedisLifecycle } from './sso-state.lifecycle';
+import { RedisModule } from '../redis/redis.module';
 import { RolesGuard } from './roles.guard';
 import { SSO_STRATEGY } from './sso-strategy';
 import { AkademikModule } from '../../modules/akademik/akademik.module';
@@ -23,6 +22,7 @@ function requiredFile(name: string): string {
 @Module({
   imports: [
     CryptoModule,
+    RedisModule,
     AkademikModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     JwtModule.registerAsync({
@@ -62,22 +62,6 @@ function requiredFile(name: string): string {
     RolesGuard,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
-    {
-      provide: AUTH_REDIS,
-      useFactory: () => {
-        const redis = new Redis({
-          host: process.env.REDIS_HOST || '127.0.0.1',
-          port: Number(process.env.REDIS_PORT || 6379),
-          lazyConnect: true,
-          enableOfflineQueue: false,
-          maxRetriesPerRequest: 1,
-          retryStrategy: (attempt) => attempt <= 2 ? 100 : null,
-        });
-        redis.on('error', () => undefined);
-        return redis;
-      },
-    },
-    AuthRedisLifecycle,
   ],
   exports: [JwtAuthGuard, RolesGuard],
 })

@@ -11,3 +11,12 @@ backups/
 *.dump
 *.dump.age
 infra/auth/*.pem
+
+# Dependency & build artifacts (jangan di-commit)
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+*.tsbuildinfo
+*.log

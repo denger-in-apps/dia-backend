@@ -8,6 +8,11 @@ import request = require('supertest');
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { SsoProviderDeniedException, SSO_STRATEGY } from './sso-strategy';
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { RolesGuard } from './roles.guard';
+import { DATABASE_POOL } from '../../database/database.module';
+import { AkademikService } from '../../modules/akademik/akademik.service';
 
 describe('AuthController', () => {
   let app: INestApplication;
@@ -23,6 +28,7 @@ describe('AuthController', () => {
     completeAuthorization: jest.Mock;
   };
   let jwt: { verifyAsync: jest.Mock };
+  let pool: { query: jest.Mock };
 
   const session = {
     accessToken: 'access-token',
@@ -63,6 +69,14 @@ describe('AuthController', () => {
       }),
     };
 
+    pool = {
+      query: jest.fn().mockResolvedValue({
+        rows: [{ nim: null, status_aktif: true, terakhir_verifikasi_at: null }],
+      }),
+    };
+
+    // Guard dipasang global persis seperti AuthModule agar test membuktikan
+    // endpoint non-@Public() benar-benar terlindungi.
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }])],
       controllers: [AuthController],
@@ -70,6 +84,10 @@ describe('AuthController', () => {
         { provide: AuthService, useValue: auth },
         { provide: SSO_STRATEGY, useValue: sso },
         { provide: JwtService, useValue: jwt },
+        { provide: DATABASE_POOL, useValue: pool },
+        { provide: AkademikService, useValue: { wajibAktif: jest.fn() } },
+        { provide: APP_GUARD, useClass: JwtAuthGuard },
+        { provide: APP_GUARD, useClass: RolesGuard },
       ],
     }).compile();
 
@@ -202,5 +220,42 @@ describe('AuthController', () => {
     expect(response.body).toEqual({
       id: 'user-id', role: 'DOSEN_ADMIN', nama: 'Dosen', email: 'dosen@example.edu',
     });
+    expect(auth.getCurrentUser).toHaveBeenCalledWith({ id: 'user-id', role: 'DOSEN_ADMIN' });
+  });
+
+  it('rejects /me without a bearer token through the global guard', async () => {
+    await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
+    expect(auth.getCurrentUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects /me when the access token fails verification', async () => {
+    jwt.verifyAsync.mockRejectedValue(new Error('invalid signature'));
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', 'Bearer forged-token')
+      .expect(401);
+    expect(auth.getCurrentUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects /me for a staff account that is no longer active', async () => {
+    pool.query.mockResolvedValue({ rows: [] });
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', 'Bearer valid-access-token')
+      .expect(403);
+  });
+
+  it('returns 503 instead of crashing when the failure URL is misconfigured', async () => {
+    sso.completeAuthorization.mockRejectedValue(new SsoProviderDeniedException());
+    const saved = process.env.FRONTEND_LOGIN_FAILURE_URL;
+    delete process.env.FRONTEND_LOGIN_FAILURE_URL;
+    try {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/auth/sso/callback?error=access_denied&state=valid-state')
+        .expect(503);
+      expect(response.body.error).toBe('kredensial');
+    } finally {
+      process.env.FRONTEND_LOGIN_FAILURE_URL = saved;
+    }
   });
 });

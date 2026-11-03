@@ -3,28 +3,12 @@ import { AKADEMIK_CLIENT } from './akademik.types';
 import { AkademikService } from './akademik.service';
 import { HttpAkademikClient } from './http-akademik.client';
 import { MockAkademikClient } from './mock-akademik.client';
-import Redis from 'ioredis';
-import { AUTH_REDIS, AuthRedisLifecycle } from '../../common/auth/sso-state.lifecycle';
+import { RedisModule } from '../../common/redis/redis.module';
 
 @Module({
+  imports: [RedisModule],
   providers: [
     AkademikService,
-    {
-      provide: AUTH_REDIS,
-      useFactory: () => {
-        const redis = new Redis({
-          host: process.env.REDIS_HOST || '127.0.0.1',
-          port: Number(process.env.REDIS_PORT || 6379),
-          lazyConnect: true,
-          enableOfflineQueue: false,
-          maxRetriesPerRequest: 1,
-          retryStrategy: (attempt) => attempt <= 2 ? 100 : null,
-        });
-        redis.on('error', () => undefined);
-        return redis;
-      },
-    },
-    AuthRedisLifecycle,
     HttpAkademikClient,
     MockAkademikClient,
     {

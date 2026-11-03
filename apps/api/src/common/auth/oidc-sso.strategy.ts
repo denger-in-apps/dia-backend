@@ -8,6 +8,7 @@ import Redis from 'ioredis';
 import { AUTH_REDIS } from './sso-state.lifecycle';
 import { SsoProviderDeniedException, SsoStrategy } from './sso-strategy';
 import { Inject } from '@nestjs/common';
+import { ensureRedisConnection } from '../redis/redis.module';
 
 interface OidcLoginState {
   state: string;
@@ -151,7 +152,7 @@ export class OidcSsoStrategy implements SsoStrategy {
   }
 
   private async ensureRedisConnection(): Promise<void> {
-    if (this.redis.status === 'wait') await this.redis.connect();
+    await ensureRedisConnection(this.redis);
   }
 
   private requiredEnv(name: string): string {

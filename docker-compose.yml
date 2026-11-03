@@ -3,6 +3,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
+      target: dev
     working_dir: /app
     command: npm run start:dev
     environment:
@@ -21,6 +22,8 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE:-dia-api}
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
       REFRESH_COOKIE_SAME_SITE: ${REFRESH_COOKIE_SAME_SITE:-lax}
+      REFRESH_REUSE_GRACE_SECONDS: ${REFRESH_REUSE_GRACE_SECONDS:-10}
+      STAFF_MFA_REQUIRED: ${STAFF_MFA_REQUIRED:-false}
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
       SSO_PROTOCOL: ${SSO_PROTOCOL:-oidc}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
@@ -69,6 +72,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
+      target: dev
     working_dir: /app
     command: npm run migration:run
     environment:
