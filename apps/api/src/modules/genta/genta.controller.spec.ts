@@ -5,10 +5,14 @@ import { configureApp } from '../../app.setup';
 import { authGuardProviders, bearer, TEST_USERS } from '../../testing/auth-test.helper';
 import { GentaController } from './genta.controller';
 import { GentaService } from './genta.service';
+import { GentaPsikologController } from './genta-psikolog.controller';
+import { GentaPsikologService } from './genta-psikolog.service';
 
 describe('GentaController', () => {
   let app: INestApplication;
   let genta: Record<string, jest.Mock>;
+  let gentaPsikolog: Record<string, jest.Mock>;
+  const idSos = '55555555-5555-4555-8555-555555555555';
   const mhs = TEST_USERS.MAHASISWA;
   const jwtLike = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl';
   const valid = { token_konfirmasi: jwtLike, situasi: 'SERANGAN_PANIK', konfirmasi: true };
@@ -19,10 +23,17 @@ describe('GentaController', () => {
       buatSos: jest.fn().mockResolvedValue({ baru: true, sos: {}, hotline: {} }),
       statusAktif: jest.fn().mockResolvedValue({ sos: null, hotline: {} }),
       batalkan: jest.fn().mockResolvedValue({}),
+      bagikanLokasi: jest.fn().mockResolvedValue({ lokasi_izin: true }),
+      cabutLokasi: jest.fn().mockResolvedValue({ lokasi_izin: false }),
     };
+    gentaPsikolog = { lokasiSos: jest.fn().mockResolvedValue({ lat: 1, lng: 2 }) };
     const moduleRef = await Test.createTestingModule({
-      controllers: [GentaController],
-      providers: [{ provide: GentaService, useValue: genta }, ...authGuardProviders()],
+      controllers: [GentaController, GentaPsikologController],
+      providers: [
+        { provide: GentaService, useValue: genta },
+        { provide: GentaPsikologService, useValue: gentaPsikolog },
+        ...authGuardProviders(),
+      ],
     }).compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
@@ -82,5 +93,51 @@ describe('GentaController', () => {
 
     await request(app.getHttpServer())
       .post('/api/v1/genta/sos/abc/batal').set('Authorization', bearer('MAHASISWA')).expect(400);
+  });
+
+  it('accepts an optional location with the SOS', async () => {
+    const body = { ...valid, lokasi: { lat: -6.2, lng: 106.8, akurasi_m: 12.5 } };
+    await request(app.getHttpServer())
+      .post('/api/v1/genta/sos').set('Authorization', bearer('MAHASISWA')).send(body).expect(201);
+    expect(genta.buatSos).toHaveBeenCalledWith(mhs.id, expect.objectContaining({ lokasi: body.lokasi }));
+  });
+
+  it.each([
+    [{ lat: 91, lng: 0 }],
+    [{ lat: 0, lng: -181 }],
+    [{ lat: '1', lng: 2 }],
+    [{ lat: 1 }],
+    [{ lat: 1, lng: 2, akurasi_m: -1 }],
+    [{ lat: 1, lng: 2, alamat: 'rumah' }],
+  ])('rejects invalid coordinates %j', async (lokasi) => {
+    await request(app.getHttpServer())
+      .post('/api/v1/genta/sos').set('Authorization', bearer('MAHASISWA')).send({ ...valid, lokasi }).expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/genta/sos/${idSos}/lokasi`).set('Authorization', bearer('MAHASISWA')).send(lokasi).expect(400);
+    expect(genta.buatSos).not.toHaveBeenCalled();
+    expect(genta.bagikanLokasi).not.toHaveBeenCalled();
+  });
+
+  it('lets the student share and withdraw a location later', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/v1/genta/sos/${idSos}/lokasi`).set('Authorization', bearer('MAHASISWA'))
+      .send({ lat: 1, lng: 2 }).expect(200);
+    expect(genta.bagikanLokasi).toHaveBeenCalledWith(mhs.id, idSos, { lat: 1, lng: 2 });
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/genta/sos/${idSos}/lokasi`).set('Authorization', bearer('MAHASISWA')).expect(200);
+    expect(genta.cabutLokasi).toHaveBeenCalledWith(mhs.id, idSos);
+  });
+
+  it('exposes SOS locations only to psychologists, without caching', async () => {
+    for (const role of ['MAHASISWA', 'DOSEN_ADMIN'] as const) {
+      await request(app.getHttpServer())
+        .get(`/api/v1/psikolog/sos/${idSos}/lokasi`).set('Authorization', bearer(role)).expect(403);
+    }
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/psikolog/sos/${idSos}/lokasi`).set('Authorization', bearer('PSIKOLOG')).expect(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(gentaPsikolog.lokasiSos).toHaveBeenCalledTimes(1);
+    expect(gentaPsikolog.lokasiSos).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, idSos, expect.any(Object));
   });
 });

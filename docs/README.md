@@ -12,6 +12,7 @@ Panduan acceptance dan smoke test:
 - [PBI-03 pengelolaan data pengguna](PBI-03-pengelolaan-data-pengguna.md)
 - [PBI-04 hak akses pengguna (RBAC)](PBI-04-rbac.md)
 - [PBI-05 tombol darurat Genta](PBI-05-tombol-darurat-genta.md)
+- [PBI-06 berbagi lokasi darurat](PBI-06-berbagi-lokasi-darurat.md)
 
 ### Persiapan (PowerShell)
 

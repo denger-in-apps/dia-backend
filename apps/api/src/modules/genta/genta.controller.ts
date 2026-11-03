@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Res,
 } from '@nestjs/common';
@@ -14,7 +16,7 @@ import { CurrentUser } from '../../common/auth/current-user.decorator';
 import { Roles } from '../../common/auth/roles.decorator';
 import { AuthenticatedUser, Role } from '../../common/auth/auth.types';
 import { GentaService } from './genta.service';
-import { BuatSosDto } from './genta.dto';
+import { BuatSosDto, LokasiDto } from './genta.dto';
 
 @Controller('genta/sos')
 @Roles(Role.MAHASISWA)
@@ -49,5 +51,21 @@ export class GentaController {
   @HttpCode(HttpStatus.OK)
   batalkan(@CurrentUser() user: AuthenticatedUser, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.genta.batalkan(user.id, id);
+  }
+
+  /** Bagikan / perbarui lokasi pada SOS yang masih berjalan (FR-MHS-04). */
+  @Patch(':id/lokasi')
+  bagikanLokasi(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: LokasiDto,
+  ) {
+    return this.genta.bagikanLokasi(user.id, id, dto);
+  }
+
+  /** Cabut izin lokasi; koordinat dihapus. */
+  @Delete(':id/lokasi')
+  cabutLokasi(@CurrentUser() user: AuthenticatedUser, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.genta.cabutLokasi(user.id, id);
   }
 }
