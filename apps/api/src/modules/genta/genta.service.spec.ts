@@ -1,6 +1,9 @@
 import { ConflictException, HttpException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { Pool } from 'pg';
+import { EncryptionService } from '../../common/crypto/encryption.service';
 import { GentaService } from './genta.service';
+import { SosLokasiService } from './sos-lokasi.service';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
 import { tentukanPrioritas } from './genta.constants';
 
@@ -33,6 +36,13 @@ describe('GentaService', () => {
   let service: GentaService;
   let riwayat: { per_jam: number; iseng: number; batal: number };
   let aktif: unknown;
+  let lokasi: SosLokasiService;
+
+  beforeAll(() => {
+    process.env.ENCRYPTION_ACTIVE_KEY_ID = 'test';
+    process.env.ENCRYPTION_KEY_test = randomBytes(32).toString('base64');
+    lokasi = new SosLokasiService(new EncryptionService());
+  });
 
   beforeEach(() => {
     riwayat = { per_jam: 0, iseng: 0, batal: 0 };
@@ -45,7 +55,10 @@ describe('GentaService', () => {
         }
         if (sql.includes('count(*) FILTER')) return { rows: [riwayat] };
         if (sql.includes('INSERT INTO log_sos')) {
-          return { rows: [{ ...sosRow, situasi: params![1], prioritas: params![2] }] };
+          return { rows: [{ ...sosRow, id_sos: params![0], situasi: params![2], prioritas: params![3], lokasi_izin: params![5] }] };
+        }
+        if (sql.includes('SET lokasi_izin = true')) {
+          return { rows: [{ ...(aktif as object), lokasi_izin: true }] };
         }
         return { rows: [] };
       }),
@@ -64,7 +77,7 @@ describe('GentaService', () => {
       verifikasi: jest.fn().mockResolvedValue({ jti: 'jti-1' }),
       pakai: jest.fn().mockResolvedValue(true),
     };
-    service = new GentaService(pool as unknown as Pool, konfirmasi as unknown as SosKonfirmasiService);
+    service = new GentaService(pool as unknown as Pool, konfirmasi as unknown as SosKonfirmasiService, lokasi);
   });
 
   const insertCall = () => client.query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO log_sos'));
@@ -82,7 +95,7 @@ describe('GentaService', () => {
     expect(result.baru).toBe(true);
     expect(konfirmasi.verifikasi).toHaveBeenCalledWith(mhs, 'token');
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), [`genta:${mhs}`]);
-    expect(insertCall()![1]).toEqual([mhs, 'SERANGAN_PANIK', 'TINGGI', false]);
+    expect(insertCall()![1].slice(1)).toEqual([mhs, 'SERANGAN_PANIK', 'TINGGI', false, false, null]);
     expect(konfirmasi.pakai).toHaveBeenCalledWith('jti-1');
     expect(client.query).toHaveBeenCalledWith('COMMIT');
   });
@@ -126,7 +139,7 @@ describe('GentaService', () => {
     Object.assign(riwayat, history);
     const result = await service.buatSos(mhs, { ...dto, situasi: 'INGIN_MENYAKITI_DIRI' });
     expect(result.baru).toBe(true);
-    expect(insertCall()![1]).toEqual([mhs, 'INGIN_MENYAKITI_DIRI', 'TINGGI', true]);
+    expect(insertCall()![1].slice(1, 5)).toEqual([mhs, 'INGIN_MENYAKITI_DIRI', 'TINGGI', true]);
   });
 
   it('falls back to the existing SOS when the unique index rejects a concurrent insert', async () => {
@@ -160,5 +173,59 @@ describe('GentaService', () => {
 
     pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
     await expect(service.batalkan(mhs, sosRow.id_sos)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('stores a shared location encrypted and bound to the new SOS id', async () => {
+    const result = await service.buatSos(mhs, { ...dto, lokasi: { lat: -6.2, lng: 106.8, akurasi_m: 15 } });
+
+    const params = insertCall()![1];
+    const [idSos, , , , , izin, ciphertext] = params;
+    expect(result.sos.id_sos).toBe(idSos);
+    expect(izin).toBe(true);
+    expect(Buffer.isBuffer(ciphertext)).toBe(true);
+    expect(ciphertext.toString('utf8')).not.toContain('106.8');
+    expect(lokasi.dekripsi(idSos, ciphertext)).toMatchObject({ lat: -6.2, lng: 106.8, akurasi_m: 15 });
+    expect(() => lokasi.dekripsi('66666666-6666-4666-8666-666666666666', ciphertext)).toThrow();
+  });
+
+  it('attaches a location sent on retry to the existing active SOS', async () => {
+    aktif = { ...sosRow };
+    const result = await service.buatSos(mhs, { ...dto, lokasi: { lat: 1, lng: 2 } });
+    expect(result).toMatchObject({ baru: false, sos: { lokasi_izin: true } });
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('SET lokasi_izin = true'), [sosRow.id_sos, mhs, expect.any(Buffer)],
+    );
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it('shares a location later only on an active SOS owned by the student', async () => {
+    pool.query.mockResolvedValueOnce({ rows: [{ ...sosRow, lokasi_izin: true }] });
+    await expect(service.bagikanLokasi(mhs, sosRow.id_sos, { lat: 1, lng: 2 }))
+      .resolves.toMatchObject({ lokasi_izin: true });
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('WHERE id_sos = $1 AND id_mahasiswa = $2 AND status_penanganan IN');
+    expect(params.slice(0, 2)).toEqual([sosRow.id_sos, mhs]);
+
+    pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{}], rowCount: 1 });
+    await expect(service.bagikanLokasi(mhs, sosRow.id_sos, { lat: 1, lng: 2 }))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await expect(service.bagikanLokasi(mhs, sosRow.id_sos, { lat: 1, lng: 2 }))
+      .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('withdraws location consent by deleting the coordinates', async () => {
+    pool.query.mockResolvedValueOnce({ rows: [{ ...sosRow, lokasi_izin: false }] });
+    await service.cabutLokasi(mhs, sosRow.id_sos);
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining('lokasi_izin = false, koordinat_lokasi_enc = NULL'), [sosRow.id_sos, mhs],
+    );
+  });
+
+  it('deletes coordinates when the student cancels the SOS', async () => {
+    pool.query.mockResolvedValueOnce({ rows: [{ ...sosRow, status_penanganan: 'SELESAI' }] });
+    await service.batalkan(mhs, sosRow.id_sos);
+    expect(pool.query.mock.calls[0][0]).toContain('koordinat_lokasi_enc = NULL');
   });
 });

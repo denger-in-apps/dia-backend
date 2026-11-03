@@ -7,12 +7,14 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
 import { PrioritasSos, SQL_STATUS_SOS_AKTIF, StatusSos } from '../../common/domain/sos';
 import { gentaConfig, SITUASI_SOS, SituasiSos, tentukanPrioritas } from './genta.constants';
-import { BuatSosDto } from './genta.dto';
+import { BuatSosDto, LokasiDto } from './genta.dto';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
+import { SosLokasiService } from './sos-lokasi.service';
 
 export interface Hotline {
   label: string;
@@ -26,6 +28,7 @@ export interface SosMahasiswa {
   prioritas: PrioritasSos;
   status_penanganan: StatusSos;
   lokasi_izin: boolean;
+  lokasi_diperbarui_at: Date | null;
   waktu_diambil: Date | null;
   waktu_selesai: Date | null;
 }
@@ -38,7 +41,7 @@ export interface HasilBuatSos {
 }
 
 const SOS_COLUMNS = `id_sos::text AS id_sos, waktu_kejadian, situasi, prioritas, status_penanganan,
-  lokasi_izin, waktu_diambil, waktu_selesai`;
+  lokasi_izin, lokasi_diperbarui_at, waktu_diambil, waktu_selesai`;
 
 const UNIQUE_VIOLATION = '23505';
 
@@ -48,6 +51,7 @@ export class GentaService {
   constructor(
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly konfirmasi: SosKonfirmasiService,
+    private readonly lokasi: SosLokasiService,
   ) {}
 
   async mintaKonfirmasi(idMahasiswa: string) {
@@ -75,8 +79,12 @@ export class GentaService {
       // Idempoten: SOS yang masih berjalan dikembalikan (retry dengan token yang sama tetap aman).
       const aktif = await this.sosAktif(client, idMahasiswa);
       if (aktif) {
+        // Retry yang membawa lokasi tetap menyimpan lokasi pada SOS yang sama.
+        const sos = dto.lokasi
+          ? await this.simpanLokasi(client, idMahasiswa, aktif.id_sos, dto.lokasi) ?? aktif
+          : aktif;
         await client.query('COMMIT');
-        return { baru: false, sos: aktif, hotline };
+        return { baru: false, sos, hotline };
       }
 
       if (!(await this.konfirmasi.pakai(jti))) {
@@ -105,11 +113,17 @@ export class GentaService {
       }
 
       const perluVerifikasi = iseng >= gentaConfig.ambangIseng30Hari() || batal >= gentaConfig.ambangBatal24Jam();
+      const idSos = randomUUID();
+      const koordinat = dto.lokasi ? this.lokasi.enkripsi(idSos, dto.lokasi) : null;
       const inserted = await client.query<SosMahasiswa>(
-        `INSERT INTO log_sos (id_mahasiswa, situasi, prioritas, perlu_verifikasi)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO log_sos (id_sos, id_mahasiswa, situasi, prioritas, perlu_verifikasi,
+                              lokasi_izin, koordinat_lokasi_enc, lokasi_diperbarui_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $6 THEN now() END)
          RETURNING ${SOS_COLUMNS}`,
-        [idMahasiswa, dto.situasi, tentukanPrioritas(dto.situasi, perluVerifikasi), perluVerifikasi],
+        [
+          idSos, idMahasiswa, dto.situasi, tentukanPrioritas(dto.situasi, perluVerifikasi),
+          perluVerifikasi, koordinat !== null, koordinat,
+        ],
       );
       await client.query('COMMIT');
       return { baru: true, sos: inserted.rows[0], hotline };
@@ -135,7 +149,8 @@ export class GentaService {
   async batalkan(idMahasiswa: string, idSos: string): Promise<SosMahasiswa> {
     const result = await this.pool.query<SosMahasiswa>(
       `UPDATE log_sos
-       SET status_penanganan = 'SELESAI', alasan_selesai = 'DIBATALKAN_MAHASISWA', waktu_selesai = now()
+       SET status_penanganan = 'SELESAI', alasan_selesai = 'DIBATALKAN_MAHASISWA', waktu_selesai = now(),
+           koordinat_lokasi_enc = NULL
        WHERE id_sos = $1 AND id_mahasiswa = $2 AND status_penanganan = 'BARU'
        RETURNING ${SOS_COLUMNS}`,
       [idSos, idMahasiswa],
@@ -155,6 +170,56 @@ export class GentaService {
       kode: 'SOS_SUDAH_DITANGANI',
       pesan: 'SOS sudah ditangani psikolog dan tidak dapat dibatalkan dari aplikasi',
     });
+  }
+
+  /**
+   * Berbagi / memperbarui lokasi pada SOS milik sendiri yang masih berjalan
+   * (mis. izin lokasi baru diberikan setelah SOS dikirim, atau posisi berpindah).
+   */
+  async bagikanLokasi(idMahasiswa: string, idSos: string, lokasi: LokasiDto): Promise<SosMahasiswa> {
+    const sos = await this.simpanLokasi(this.pool, idMahasiswa, idSos, lokasi);
+    if (sos) return sos;
+    throw await this.sosTidakBisaDiubah(idMahasiswa, idSos);
+  }
+
+  /** Mencabut izin lokasi: koordinat dihapus, psikolog tidak lagi dapat melihatnya. */
+  async cabutLokasi(idMahasiswa: string, idSos: string): Promise<SosMahasiswa> {
+    const result = await this.pool.query<SosMahasiswa>(
+      `UPDATE log_sos
+       SET lokasi_izin = false, koordinat_lokasi_enc = NULL, lokasi_diperbarui_at = now()
+       WHERE id_sos = $1 AND id_mahasiswa = $2
+       RETURNING ${SOS_COLUMNS}`,
+      [idSos, idMahasiswa],
+    );
+    if (!result.rows[0]) throw new NotFoundException({ kode: 'SOS_TIDAK_DITEMUKAN', pesan: 'SOS tidak ditemukan' });
+    return result.rows[0];
+  }
+
+  private async simpanLokasi(
+    executor: Pool | PoolClient,
+    idMahasiswa: string,
+    idSos: string,
+    lokasi: LokasiDto,
+  ): Promise<SosMahasiswa | null> {
+    const result = await executor.query<SosMahasiswa>(
+      `UPDATE log_sos
+       SET lokasi_izin = true, koordinat_lokasi_enc = $3, lokasi_diperbarui_at = now()
+       WHERE id_sos = $1 AND id_mahasiswa = $2 AND status_penanganan IN ${SQL_STATUS_SOS_AKTIF}
+       RETURNING ${SOS_COLUMNS}`,
+      [idSos, idMahasiswa, this.lokasi.enkripsi(idSos, lokasi)],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  private async sosTidakBisaDiubah(idMahasiswa: string, idSos: string): Promise<Error> {
+    const existing = await this.pool.query(
+      `SELECT 1 FROM log_sos WHERE id_sos = $1 AND id_mahasiswa = $2`,
+      [idSos, idMahasiswa],
+    );
+    if (!existing.rowCount) {
+      return new NotFoundException({ kode: 'SOS_TIDAK_DITEMUKAN', pesan: 'SOS tidak ditemukan' });
+    }
+    return new ConflictException({ kode: 'SOS_SUDAH_SELESAI', pesan: 'SOS sudah selesai' });
   }
 
   private async sosAktif(executor: Pool | PoolClient, idMahasiswa: string): Promise<SosMahasiswa | null> {
