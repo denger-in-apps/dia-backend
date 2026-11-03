@@ -13,6 +13,7 @@ Panduan acceptance dan smoke test:
 - [PBI-04 hak akses pengguna (RBAC)](PBI-04-rbac.md)
 - [PBI-05 tombol darurat Genta](PBI-05-tombol-darurat-genta.md)
 - [PBI-06 berbagi lokasi darurat](PBI-06-berbagi-lokasi-darurat.md)
+- [PBI-07 notifikasi realtime psikolog](PBI-07-notifikasi-realtime-psikolog.md)
 
 ### Persiapan (PowerShell)
 

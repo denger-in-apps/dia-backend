@@ -2,6 +2,7 @@ import { Provider } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { JwtAuthGuard } from '../common/auth/jwt-auth.guard';
+import { AccessTokenService } from '../common/auth/access-token.service';
 import { RolesGuard } from '../common/auth/roles.guard';
 import { AuthenticatedUser, UserRole } from '../common/auth/auth.types';
 import { DATABASE_POOL } from '../database/database.module';
@@ -38,6 +39,7 @@ export function authGuardProviders(): Provider[] {
     { provide: JwtService, useValue: jwt },
     { provide: DATABASE_POOL, useValue: guardPool },
     { provide: AkademikService, useValue: { wajibAktif: jest.fn() } },
+    AccessTokenService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ];
