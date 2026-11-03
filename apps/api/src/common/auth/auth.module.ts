@@ -63,6 +63,7 @@ function requiredFile(name: string): string {
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [JwtAuthGuard, RolesGuard],
+  // JwtModule diekspor agar modul lain (mis. token konfirmasi Genta) memakai kunci RS256 yang sama.
+  exports: [JwtModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}
