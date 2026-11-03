@@ -9,6 +9,7 @@ Panduan acceptance dan smoke test:
 - [PBI-01 autentikasi](PBI-01-auth-testing.md)
 - [PBI-01 uji fungsi OIDC dengan mock](PBI-01-oidc-mock-testing.md)
 - [PBI-02 verifikasi mahasiswa aktif](PBI-02-verifikasi-mahasiswa-aktif.md)
+- [PBI-03 pengelolaan data pengguna](PBI-03-pengelolaan-data-pengguna.md)
 - [PBI-04 hak akses pengguna (RBAC)](PBI-04-rbac.md)
 
 ### Persiapan (PowerShell)
@@ -194,8 +195,10 @@ atau kolom lain akan gagal didekripsi. Kolom sensitif `*_enc` di skema database
 menyimpan hasil enkripsi ini; jangan menulis plaintext ke log.
 
 Untuk menjalankan lokal, salin `.env.example` ke `.env`. `ENCRYPTION_KEY_1`
-adalah kunci development contoh; ganti dengan kunci acak 32 byte sebelum
-menyimpan data nyata. Buat nilainya dengan
+sengaja dikosongkan dan aplikasi tidak akan start sebelum diisi kunci acak
+32 byte. Kunci contoh yang dahulu tercantum di `.env.example` sudah publik di
+riwayat Git; jangan dipakai, dan rotasi kunci di environment yang pernah
+memakainya. Buat nilainya dengan
 `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 Kunci produksi simpan di secret manager, bukan di Git atau database. Saat rotasi,
 tambahkan kunci baru dengan ID baru (mis. `ENCRYPTION_KEY_2`), ubah

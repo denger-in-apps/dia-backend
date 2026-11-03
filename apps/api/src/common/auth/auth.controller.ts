@@ -22,6 +22,7 @@ import { CurrentUser } from './current-user.decorator';
 import { AuthenticatedUser, AuthProfile, AuthSession } from './auth.types';
 import { validate } from 'class-validator';
 import { Public } from './public.decorator';
+import { REFRESH_COOKIE_NAME, refreshCookieOptions } from './refresh-cookie';
 
 @Controller('auth')
 export class AuthController {
@@ -33,7 +34,8 @@ export class AuthController {
   @Get('sso/login')
   @Public()
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  // Longgar karena banyak mahasiswa berbagi satu IP NAT kampus; kredensial divalidasi IdP.
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   async ssoLogin(@Res() response: Response): Promise<void> {
     const url = await this.sso.createAuthorizationUrl();
     response.redirect(HttpStatus.FOUND, url.href);
@@ -53,7 +55,18 @@ export class AuthController {
       response.redirect(HttpStatus.FOUND, this.frontendUrl('FRONTEND_LOGIN_SUCCESS_URL'));
     } catch (error) {
       const result = this.ssoFailureCode(error);
-      const failure = new URL(this.frontendUrl('FRONTEND_LOGIN_FAILURE_URL'));
+      let failure: URL;
+      try {
+        failure = new URL(this.frontendUrl('FRONTEND_LOGIN_FAILURE_URL'));
+      } catch {
+        // Salah konfigurasi URL frontend tidak boleh berubah menjadi 500 tak tertangani.
+        response.status(HttpStatus.SERVICE_UNAVAILABLE).json({
+          statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+          error: result,
+          message: 'Halaman login frontend belum dikonfigurasi',
+        });
+        return;
+      }
       failure.searchParams.set('error', result);
       response.redirect(HttpStatus.FOUND, failure.href);
     }
@@ -122,7 +135,7 @@ export class AuthController {
   async logout(@Req() request: Request, @Res() response: Response): Promise<void> {
     this.assertTrustedOrigin(request.get('origin'));
     await this.auth.logout(request.cookies?.refresh_token);
-    response.clearCookie('refresh_token', this.refreshCookieOptions());
+    response.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
     response.status(HttpStatus.NO_CONTENT).send();
   }
 
@@ -134,19 +147,10 @@ export class AuthController {
   }
 
   private setRefreshCookie(response: Response, session: AuthSession): void {
-    response.cookie('refresh_token', session.refreshToken, {
-      ...this.refreshCookieOptions(),
+    response.cookie(REFRESH_COOKIE_NAME, session.refreshToken, {
+      ...refreshCookieOptions(),
       maxAge: session.refreshTokenExpiresIn * 1000,
     });
-  }
-
-  private refreshCookieOptions() {
-    return {
-      httpOnly: true,
-      secure: true,
-      sameSite: process.env.REFRESH_COOKIE_SAME_SITE === 'none' ? 'none' as const : 'lax' as const,
-      path: '/api/v1/auth',
-    };
   }
 
   private publicSession(session: AuthSession) {

@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -13,6 +14,9 @@ import { DATABASE_POOL } from '../../database/database.module';
 import { AuthProfile, AuthSession, AuthenticatedUser, UserRole } from './auth.types';
 import { StudentIdentity } from './oidc-sso.strategy';
 import { AkademikService } from '../../modules/akademik/akademik.service';
+import Redis from 'ioredis';
+import { AUTH_REDIS } from './sso-state.lifecycle';
+import { ensureRedisConnection } from '../redis/redis.module';
 
 interface RefreshRow {
   id: string;
@@ -26,6 +30,10 @@ interface RefreshRow {
 
 const ACCESS_TOKEN_SECONDS = 15 * 60;
 const DEFAULT_REFRESH_TOKEN_SECONDS = 7 * 24 * 60 * 60;
+const DEFAULT_REFRESH_REUSE_GRACE_SECONDS = 10;
+const STUDENT_REVERIFY_MS = 24 * 60 * 60 * 1000;
+const TOTP_STEP_MS = 30_000;
+const TOTP_DRIFT_STEPS = 1;
 
 @Injectable()
 export class AuthService {
@@ -34,7 +42,11 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly encryption: EncryptionService,
     private readonly akademik: AkademikService,
+    @Inject(AUTH_REDIS) private readonly redis: Redis,
   ) {}
+
+  /** Hash dummy agar email yang tidak terdaftar tetap menjalankan argon2 (anti-enumerasi). */
+  private dummyHash?: Promise<string>;
 
   async loginStaff(
     role: Extract<UserRole, 'PSIKOLOG' | 'DOSEN_ADMIN'>,
@@ -54,23 +66,30 @@ export class AuthService {
          FROM dosen_admin WHERE email = $1`;
     const result = await this.pool.query(query, [email.trim().toLowerCase()]);
     const account = result.rows[0];
-    if (!account?.password_hash) throw new UnauthorizedException('Email atau password salah');
 
     let passwordIsValid = false;
     try {
-      passwordIsValid = await argon2.verify(account.password_hash, password);
+      // Selalu jalankan argon2 (dengan hash dummy bila akun tidak ada) supaya waktu
+      // respons tidak membocorkan email mana yang terdaftar.
+      const hash = account?.password_hash ?? (await this.getDummyHash());
+      passwordIsValid = await argon2.verify(hash, password);
     } catch {
       passwordIsValid = false;
     }
-    if (!passwordIsValid) throw new UnauthorizedException('Email atau password salah');
+    if (!account?.password_hash || !passwordIsValid) {
+      throw new UnauthorizedException('Email atau password salah');
+    }
     if (!account.aktif) throw new ForbiddenException('Akun staf belum aktif');
 
     if (account.mfa_secret_enc) {
-      if (!otp || !this.verifyTotp(account.mfa_secret_enc, role, account.id, otp)) {
+      const step = otp ? this.verifyTotp(account.mfa_secret_enc, role, account.id, otp) : null;
+      if (step === null || !(await this.consumeTotpStep(role, account.id, step))) {
         throw new UnauthorizedException('Email atau password salah');
       }
     } else if (otp) {
       throw new UnauthorizedException('Email atau password salah');
+    } else if (this.staffMfaRequired()) {
+      throw new ForbiddenException('MFA_WAJIB');
     }
 
     return this.issueSession({ id: account.id, role }, ip, userAgent);
@@ -121,6 +140,9 @@ export class AuthService {
       throw new UnauthorizedException('Sesi tidak valid atau kedaluwarsa');
     }
     const tokenHash = this.hashToken(rawToken);
+    // Panggilan HTTP ke layanan akademik dilakukan SEBELUM transaksi dibuka agar tidak
+    // menahan koneksi pool + row lock selama menunggu jaringan (risiko pool exhaustion).
+    const studentStillActive = await this.reverifyStudentIfStale(tokenHash);
     const client = await this.pool.connect();
     let transactionOpen = false;
     try {
@@ -135,7 +157,9 @@ export class AuthService {
       const previous = result.rows[0];
       if (!previous) throw new UnauthorizedException('Sesi tidak valid atau kedaluwarsa');
 
-      if (previous.revoked_at) {
+      const graceReuse = Boolean(previous.revoked_at) &&
+        (await this.isWithinReuseGrace(client, previous));
+      if (previous.revoked_at && !graceReuse) {
         if (previous.replaced_by) {
           await client.query(
             `UPDATE refresh_token SET revoked_at = COALESCE(revoked_at, now())
@@ -150,7 +174,9 @@ export class AuthService {
       if (new Date(previous.expires_at).getTime() <= Date.now()) {
         throw new UnauthorizedException('Sesi tidak valid atau kedaluwarsa');
       }
-      if (!(await this.isAccountActive(client, previous.id_pengguna, previous.role))) {
+      if (!(await this.isAccountActive(
+        client, previous.id_pengguna, previous.role, studentStillActive,
+      ))) {
         await client.query(
           `UPDATE refresh_token SET revoked_at = COALESCE(revoked_at, now())
            WHERE token_family_id = $1`,
@@ -168,11 +194,12 @@ export class AuthService {
         ip,
         userAgent,
       );
-      const nextId = session.refreshRowId;
-      await client.query(
-        `UPDATE refresh_token SET revoked_at = now(), replaced_by = $2 WHERE id = $1`,
-        [previous.id, nextId],
-      );
+      if (!graceReuse) {
+        await client.query(
+          `UPDATE refresh_token SET revoked_at = now(), replaced_by = $2 WHERE id = $1`,
+          [previous.id, session.refreshRowId],
+        );
+      }
       await client.query('COMMIT');
       transactionOpen = false;
       return session.result;
@@ -273,30 +300,56 @@ export class AuthService {
     };
   }
 
+  /**
+   * Refresh paralel dari beberapa tab membawa cookie lama yang sama. Dalam jendela
+   * singkat setelah rotasi, token lama masih boleh dipakai SELAMA penerusnya belum
+   * dicabut (logout/deteksi reuse mencabut seluruh family, sehingga grace gugur).
+   * Penerus tidak dicabut agar cookie mana pun yang terakhir tersimpan tetap valid.
+   */
+  private async isWithinReuseGrace(client: PoolClient, previous: RefreshRow): Promise<boolean> {
+    if (!previous.revoked_at || !previous.replaced_by) return false;
+    const graceMs = this.refreshReuseGraceSeconds() * 1000;
+    if (graceMs === 0 || Date.now() - new Date(previous.revoked_at).getTime() > graceMs) {
+      return false;
+    }
+    const successor = await client.query<{ revoked_at: Date | null }>(
+      `SELECT revoked_at FROM refresh_token WHERE id = $1 FOR UPDATE`,
+      [previous.replaced_by],
+    );
+    return successor.rows.length === 1 && successor.rows[0].revoked_at === null;
+  }
+
+  /**
+   * Untuk refresh token mahasiswa yang status akademiknya sudah >24 jam tidak
+   * diverifikasi, cek ulang ke layanan akademik di luar transaksi.
+   * Mengembalikan `undefined` bila tidak perlu (bukan mahasiswa / masih segar).
+   */
+  private async reverifyStudentIfStale(tokenHash: string): Promise<boolean | undefined> {
+    const result = await this.pool.query<{ nim: string; terakhir_verifikasi_at: Date | null }>(
+      `SELECT m.nim, m.terakhir_verifikasi_at
+       FROM refresh_token rt
+       JOIN mahasiswa m ON m.id_mahasiswa = rt.id_pengguna
+       WHERE rt.token_hash = $1 AND rt.role = 'MAHASISWA'
+         AND m.status_aktif AND m.deleted_at IS NULL`,
+      [tokenHash],
+    );
+    const student = result.rows[0];
+    if (!student) return undefined;
+    if (student.terakhir_verifikasi_at &&
+        Date.now() - new Date(student.terakhir_verifikasi_at).getTime() < STUDENT_REVERIFY_MS) {
+      return undefined;
+    }
+    const status = await this.akademik.verifikasi(student.nim);
+    return status.aktif;
+  }
+
   private async isAccountActive(
     client: PoolClient,
     id: string,
     role: UserRole,
+    studentStillActive?: boolean,
   ): Promise<boolean> {
-    if (role === 'MAHASISWA') {
-      const result = await client.query<{
-        nim: string;
-        status_aktif: boolean;
-        terakhir_verifikasi_at: Date | null;
-      }>(
-        `SELECT nim, status_aktif, terakhir_verifikasi_at FROM mahasiswa
-         WHERE id_mahasiswa = $1 AND deleted_at IS NULL`,
-        [id],
-      );
-      const student = result.rows[0];
-      if (!student?.status_aktif) return false;
-      if (!student.terakhir_verifikasi_at ||
-          Date.now() - new Date(student.terakhir_verifikasi_at).getTime() >= 24 * 60 * 60 * 1000) {
-        const status = await this.akademik.verifikasi(student.nim);
-        return status.aktif;
-      }
-      return true;
-    }
+    if (role === 'MAHASISWA' && studentStillActive === false) return false;
     const sql: Record<UserRole, string> = {
       MAHASISWA: `SELECT 1 FROM mahasiswa WHERE id_mahasiswa = $1 AND status_aktif AND deleted_at IS NULL`,
       PSIKOLOG: `SELECT 1 FROM psikolog WHERE id_psikolog = $1 AND status_akun = 'AKTIF'`,
@@ -306,7 +359,8 @@ export class AuthService {
     return result.rowCount === 1;
   }
 
-  private verifyTotp(encryptedSecret: Buffer, role: UserRole, id: string, otp: string): boolean {
+  /** Mengembalikan time-step yang cocok, atau null bila OTP salah. */
+  private verifyTotp(encryptedSecret: Buffer, role: UserRole, id: string, otp: string): number | null {
     try {
       const table = role === 'PSIKOLOG' ? 'psikolog' : 'dosen_admin';
       const column = role === 'PSIKOLOG' ? 'id_psikolog' : 'id_dosen';
@@ -314,22 +368,62 @@ export class AuthService {
         .decrypt(encryptedSecret, `${table}:mfa_secret_enc:${id}`)
         .toString('utf8');
       const secret = decodeBase32(secretText);
-      if (!/^\d{6}$/.test(otp)) return false;
+      if (!/^\d{6}$/.test(otp)) return null;
 
-      const nowStep = Math.floor(Date.now() / 30_000);
-      for (let drift = -1; drift <= 1; drift++) {
+      const nowStep = Math.floor(Date.now() / TOTP_STEP_MS);
+      for (let drift = -TOTP_DRIFT_STEPS; drift <= TOTP_DRIFT_STEPS; drift++) {
+        const step = nowStep + drift;
         const counter = Buffer.alloc(8);
-        counter.writeBigUInt64BE(BigInt(nowStep + drift));
+        counter.writeBigUInt64BE(BigInt(step));
         const digest = createHmac('sha1', secret).update(counter).digest();
         const offset = digest[digest.length - 1] & 0x0f;
         const code = (digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
         const expected = Buffer.from(code.toString().padStart(6, '0'));
-        if (timingSafeEqual(expected, Buffer.from(otp))) return true;
+        if (timingSafeEqual(expected, Buffer.from(otp))) return step;
       }
-      return false;
+      return null;
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  /**
+   * Menandai time-step OTP sebagai terpakai (SET NX) agar kode yang sama tidak bisa
+   * di-replay dalam jendela validitasnya. Fail-closed bila Redis tidak tersedia.
+   */
+  private async consumeTotpStep(role: UserRole, id: string, step: number): Promise<boolean> {
+    const ttlSeconds = Math.ceil(((TOTP_DRIFT_STEPS * 2 + 1) * TOTP_STEP_MS) / 1000);
+    try {
+      await ensureRedisConnection(this.redis);
+      const saved = await this.redis.set(
+        `auth:totp:used:${role}:${id}:${step}`, '1', 'EX', ttlSeconds, 'NX',
+      );
+      return saved === 'OK';
+    } catch (error) {
+      throw new ServiceUnavailableException('Verifikasi MFA sementara tidak tersedia', { cause: error });
+    }
+  }
+
+  private staffMfaRequired(): boolean {
+    const raw = process.env.STAFF_MFA_REQUIRED?.trim().toLowerCase();
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    return process.env.NODE_ENV === 'production';
+  }
+
+  private getDummyHash(): Promise<string> {
+    this.dummyHash ??= argon2.hash(randomBytes(32), { type: argon2.argon2id });
+    return this.dummyHash;
+  }
+
+  private refreshReuseGraceSeconds(): number {
+    const raw = process.env.REFRESH_REUSE_GRACE_SECONDS;
+    if (!raw) return DEFAULT_REFRESH_REUSE_GRACE_SECONDS;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 0 || value > 60) {
+      throw new Error('REFRESH_REUSE_GRACE_SECONDS harus berada antara 0 dan 60');
+    }
+    return value;
   }
 
   private hashToken(token: string): string {

@@ -1,7 +1,7 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { createHash } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { EncryptionService } from '../crypto/encryption.service';
 import { AuthService } from './auth.service';
@@ -14,19 +14,37 @@ describe('AuthService', () => {
   let client: { query: jest.Mock; release: jest.Mock };
   let jwt: { signAsync: jest.Mock };
   let encryption: { decrypt: jest.Mock };
+  let akademik: { wajibAktif: jest.Mock; verifikasi: jest.Mock };
+  let redis: { status: string; set: jest.Mock };
+
+  const refreshRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'old-row-id', role: 'MAHASISWA', id_pengguna: userId,
+    token_family_id: familyId, expires_at: new Date(Date.now() + 60_000),
+    revoked_at: null, replaced_by: null, ...overrides,
+  });
 
   beforeEach(() => {
     client = { query: jest.fn(), release: jest.fn() };
     pool = { query: jest.fn(), connect: jest.fn().mockResolvedValue(client) };
     jwt = { signAsync: jest.fn().mockResolvedValue('signed-access-token') };
     encryption = { decrypt: jest.fn() };
+    akademik = {
+      wajibAktif: jest.fn().mockResolvedValue({ aktif: true, sumber: 'api' }),
+      verifikasi: jest.fn().mockResolvedValue({ aktif: true, sumber: 'api' }),
+    };
+    redis = { status: 'ready', set: jest.fn().mockResolvedValue('OK') };
+    // Pre-check status mahasiswa (di luar transaksi) default: tidak perlu re-verifikasi.
+    pool.query.mockResolvedValue({ rows: [] });
     service = new AuthService(
       pool as unknown as Pool,
       jwt as unknown as JwtService,
       encryption as unknown as EncryptionService,
-      { wajibAktif: jest.fn().mockResolvedValue({ aktif: true, sumber: 'api' }) } as never,
+      akademik as never,
+      redis as never,
     );
     delete process.env.REFRESH_TOKEN_TTL_SECONDS;
+    delete process.env.REFRESH_REUSE_GRACE_SECONDS;
+    delete process.env.STAFF_MFA_REQUIRED;
   });
 
   it('rejects a missing refresh token before querying the database', async () => {
@@ -117,13 +135,8 @@ describe('AuthService', () => {
   it('revokes the family when a rotated refresh token is reused', async () => {
     client.query.mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT id::text, role')) {
-        return {
-          rows: [{
-            id: 'old-row-id', role: 'MAHASISWA', id_pengguna: userId,
-            token_family_id: familyId, expires_at: new Date(Date.now() + 60_000),
-            revoked_at: new Date(), replaced_by: 'new-row-id',
-          }],
-        };
+        // Di luar grace window: rotasi terjadi 1 menit lalu.
+        return { rows: [refreshRow({ revoked_at: new Date(Date.now() - 60_000), replaced_by: 'new-row-id' })] };
       }
       return { rows: [] };
     });
@@ -137,4 +150,116 @@ describe('AuthService', () => {
     expect(client.query).toHaveBeenCalledWith('COMMIT');
     expect(client.query).not.toHaveBeenCalledWith('ROLLBACK');
   });
+
+  it('allows a parallel refresh with the just-rotated token inside the grace window', async () => {
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id::text, role')) {
+        return { rows: [refreshRow({ revoked_at: new Date(Date.now() - 2_000), replaced_by: 'next-row-id' })] };
+      }
+      if (sql.includes('SELECT revoked_at FROM refresh_token')) return { rows: [{ revoked_at: null }] };
+      if (sql.includes('SELECT 1 FROM mahasiswa')) return { rowCount: 1, rows: [{}] };
+      if (sql.includes('INSERT INTO refresh_token')) return { rows: [{ id: 'sibling-row-id' }] };
+      return { rows: [] };
+    });
+
+    const next = await service.refresh('old-refresh-token', undefined, undefined);
+
+    expect(next.user).toEqual({ id: userId, role: 'MAHASISWA' });
+    const revokingFamily = client.query.mock.calls.some(([sql]) => sql.includes('WHERE token_family_id = $1'));
+    expect(revokingFamily).toBe(false);
+    const markingReplaced = client.query.mock.calls.some(([sql]) => sql.includes('replaced_by = $2'));
+    expect(markingReplaced).toBe(false);
+    expect(client.query).toHaveBeenCalledWith('COMMIT');
+  });
+
+  it('treats grace-window reuse as theft once the successor was revoked', async () => {
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id::text, role')) {
+        return { rows: [refreshRow({ revoked_at: new Date(Date.now() - 2_000), replaced_by: 'next-row-id' })] };
+      }
+      if (sql.includes('SELECT revoked_at FROM refresh_token')) return { rows: [{ revoked_at: new Date() }] };
+      return { rows: [] };
+    });
+
+    await expect(service.refresh('old-refresh-token', undefined, undefined))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('WHERE token_family_id = $1'), [familyId],
+    );
+  });
+
+  it('re-verifies a stale student status before opening the DB transaction', async () => {
+    pool.query.mockResolvedValue({ rows: [{ nim: '12345678', terakhir_verifikasi_at: null }] });
+    akademik.verifikasi.mockResolvedValue({ aktif: false, sumber: 'api' });
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id::text, role')) return { rows: [refreshRow()] };
+      if (sql.includes('SELECT 1 FROM mahasiswa')) return { rowCount: 1, rows: [{}] };
+      return { rows: [] };
+    });
+
+    await expect(service.refresh('old-refresh-token', undefined, undefined))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(akademik.verifikasi).toHaveBeenCalledWith('12345678');
+    expect(akademik.verifikasi.mock.invocationCallOrder[0])
+      .toBeLessThan(pool.connect.mock.invocationCallOrder[0]);
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('WHERE token_family_id = $1'), [familyId],
+    );
+  });
+
+  it('requires MFA for staff in production when no secret is enrolled', async () => {
+    const password = 'correct horse battery staple';
+    const hash = await argon2.hash(password);
+    pool.query.mockResolvedValue({
+      rows: [{ id: userId, password_hash: hash, aktif: true, mfa_secret_enc: null }],
+    });
+    const previousEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      await expect(service.loginStaff('PSIKOLOG', 'psy@example.edu', password, undefined, undefined, undefined))
+        .rejects.toThrow('MFA_WAJIB');
+    } finally {
+      process.env.NODE_ENV = previousEnv;
+    }
+    expect(pool.connect).not.toHaveBeenCalled();
+  });
+
+  it('rejects a replayed TOTP code', async () => {
+    const password = 'correct horse battery staple';
+    const hash = await argon2.hash(password);
+    const secretBase32 = 'JBSWY3DPEHPK3PXP';
+    pool.query.mockResolvedValue({
+      rows: [{ id: userId, password_hash: hash, aktif: true, mfa_secret_enc: Buffer.from('x') }],
+    });
+    encryption.decrypt.mockReturnValue(Buffer.from(secretBase32));
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('INSERT INTO refresh_token')) return { rows: [{ id: 'refresh-row-id' }] };
+      return { rows: [] };
+    });
+    const otp = totp(secretBase32, Math.floor(Date.now() / 30_000));
+
+    await expect(service.loginStaff('DOSEN_ADMIN', 'a@example.edu', password, otp, undefined, undefined))
+      .resolves.toMatchObject({ user: { id: userId, role: 'DOSEN_ADMIN' } });
+
+    redis.set.mockResolvedValue(null); // time-step sudah ditandai terpakai
+    await expect(service.loginStaff('DOSEN_ADMIN', 'a@example.edu', password, otp, undefined, undefined))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(redis.set).toHaveBeenCalledWith(
+      expect.stringContaining('auth:totp:used:DOSEN_ADMIN:' + userId + ':'), '1', 'EX', 90, 'NX',
+    );
+  });
 });
+
+function totp(base32: string, step: number): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const char of base32) bits += alphabet.indexOf(char).toString(2).padStart(5, '0');
+  const bytes: number[] = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(step));
+  const digest = createHmac('sha1', Buffer.from(bytes)).update(counter).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
+}
