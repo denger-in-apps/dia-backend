@@ -26,7 +26,13 @@ describe('GentaController', () => {
       bagikanLokasi: jest.fn().mockResolvedValue({ lokasi_izin: true }),
       cabutLokasi: jest.fn().mockResolvedValue({ lokasi_izin: false }),
     };
-    gentaPsikolog = { lokasiSos: jest.fn().mockResolvedValue({ lat: 1, lng: 2 }) };
+    gentaPsikolog = {
+      lokasiSos: jest.fn().mockResolvedValue({ lat: 1, lng: 2 }),
+      daftar: jest.fn().mockResolvedValue([]),
+      detail: jest.fn().mockResolvedValue({ id_sos: idSos }),
+      ambil: jest.fn().mockResolvedValue({ id_sos: idSos, status_penanganan: 'DIAMBIL' }),
+      ubahStatus: jest.fn().mockResolvedValue({ id_sos: idSos, status_penanganan: 'SELESAI' }),
+    };
     const moduleRef = await Test.createTestingModule({
       controllers: [GentaController, GentaPsikologController],
       providers: [
@@ -139,5 +145,69 @@ describe('GentaController', () => {
     expect(response.headers['cache-control']).toBe('no-store');
     expect(gentaPsikolog.lokasiSos).toHaveBeenCalledTimes(1);
     expect(gentaPsikolog.lokasiSos).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, idSos, expect.any(Object));
+  });
+
+  describe('dashboard psikolog', () => {
+    it('is restricted to psychologists', async () => {
+      for (const role of ['MAHASISWA', 'DOSEN_ADMIN'] as const) {
+        await request(app.getHttpServer()).get('/api/v1/psikolog/sos').set('Authorization', bearer(role)).expect(403);
+        await request(app.getHttpServer())
+          .post(`/api/v1/psikolog/sos/${idSos}/ambil`).set('Authorization', bearer(role)).expect(403);
+        await request(app.getHttpServer())
+          .patch(`/api/v1/psikolog/sos/${idSos}/status`).set('Authorization', bearer(role))
+          .send({ status: 'SELESAI' }).expect(403);
+      }
+      await request(app.getHttpServer()).get('/api/v1/psikolog/sos').expect(401);
+      expect(gentaPsikolog.daftar).not.toHaveBeenCalled();
+      expect(gentaPsikolog.ambil).not.toHaveBeenCalled();
+      expect(gentaPsikolog.ubahStatus).not.toHaveBeenCalled();
+    });
+
+    it('lists the queue with validated filters', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/psikolog/sos?cakupan=milik_saya&limit=20').set('Authorization', bearer('PSIKOLOG')).expect(200);
+      expect(gentaPsikolog.daftar).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, { cakupan: 'milik_saya', limit: 20 });
+
+      for (const qs of ['cakupan=semua', 'limit=0', 'limit=1000', 'id_psikolog=x']) {
+        await request(app.getHttpServer())
+          .get(`/api/v1/psikolog/sos?${qs}`).set('Authorization', bearer('PSIKOLOG')).expect(400);
+      }
+    });
+
+    it('serves case details without caching', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/api/v1/psikolog/sos/${idSos}`).set('Authorization', bearer('PSIKOLOG')).expect(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(gentaPsikolog.detail).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, idSos, expect.any(Object));
+    });
+
+    it('takes a case', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/psikolog/sos/${idSos}/ambil`).set('Authorization', bearer('PSIKOLOG')).expect(200);
+      expect(gentaPsikolog.ambil).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, idSos, expect.any(Object));
+    });
+
+    it('validates status updates', async () => {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/psikolog/sos/${idSos}/status`).set('Authorization', bearer('PSIKOLOG'))
+        .send({ status: 'SELESAI', laporan_tidak_valid: true, catatan: '  Mengaku iseng  ' }).expect(200);
+      expect(gentaPsikolog.ubahStatus).toHaveBeenCalledWith(
+        TEST_USERS.PSIKOLOG, idSos, { status: 'SELESAI', laporan_tidak_valid: true, catatan: 'Mengaku iseng' },
+        expect.any(Object),
+      );
+
+      for (const body of [
+        { status: 'BARU' },
+        { status: 'DIAMBIL' },
+        { status: 'SELESAI', laporan_tidak_valid: true },
+        { status: 'SELESAI', laporan_tidak_valid: true, catatan: '   ' },
+        { status: 'SELESAI', catatan: 'x'.repeat(2001) },
+        { status: 'SELESAI', id_psikolog: TEST_USERS.PSIKOLOG.id },
+      ]) {
+        await request(app.getHttpServer())
+          .patch(`/api/v1/psikolog/sos/${idSos}/status`).set('Authorization', bearer('PSIKOLOG')).send(body).expect(400);
+      }
+      expect(gentaPsikolog.ubahStatus).toHaveBeenCalledTimes(1);
+    });
   });
 });
