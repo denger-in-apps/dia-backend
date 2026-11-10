@@ -92,4 +92,19 @@ describe('SosNotifikasiService', () => {
       status_penanganan: 'DIAMBIL',
     }));
   });
+
+  it('sends escalations to every active psychologist, not only those on duty, and stores them', async () => {
+    const penerima = await service.sosEskalasi({
+      id_sos: sos.id_sos, prioritas: 'KRITIS', situasi: sos.situasi, waktu_kejadian: sos.waktu_kejadian,
+      waktu_eskalasi: new Date().toISOString(), lokasi_tersedia: true, perlu_verifikasi: false, sumber: 'TIMER',
+    });
+    expect(penerima).toBe(2);
+    expect(gateway.kirimKePsikolog).toHaveBeenCalledWith(['p-jaga', 'p-lain'], 'sos:eskalasi', expect.objectContaining({
+      id_sos: sos.id_sos, sumber: 'TIMER',
+    }));
+    expect(JSON.parse(insertCall()![1][1])).toMatchObject({ eskalasi: true });
+
+    pool.query.mockRejectedValue(new Error('db down'));
+    await expect(service.sosEskalasi({ id_sos: 'x' } as never)).resolves.toBe(0);
+  });
 });

@@ -9,9 +9,10 @@ import { AkademikModule } from './modules/akademik/akademik.module';
 import { AkunModule } from './modules/akun/akun.module';
 import { GentaModule } from './modules/genta/genta.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
-  imports: [HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule, GentaModule, RealtimeModule],
+  imports: [ScheduleModule.forRoot(), HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule, GentaModule, RealtimeModule],
   controllers: [AppController],
   providers: [AppService],
 })

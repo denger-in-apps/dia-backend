@@ -10,5 +10,6 @@ export const ROOM_SEMUA_PSIKOLOG = 'psikolog:semua';
 export const EVENT = {
   SOS_BARU: 'sos:baru',
   SOS_DIPERBARUI: 'sos:diperbarui',
+  SOS_ESKALASI: 'sos:eskalasi',
   SESI_KEDALUWARSA: 'sesi:kedaluwarsa',
 } as const;

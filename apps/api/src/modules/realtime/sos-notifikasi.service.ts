@@ -22,6 +22,18 @@ export interface SosDiperbaruiPayload {
   id_psikolog: string | null;
 }
 
+/** Payload `sos:eskalasi`: SOS belum diambil setelah batas waktu (atau tanpa psikolog jaga). */
+export interface SosEskalasiPayload {
+  id_sos: string;
+  prioritas: PrioritasSos;
+  situasi: string | null;
+  waktu_kejadian: string;
+  waktu_eskalasi: string;
+  lokasi_tersedia: boolean;
+  perlu_verifikasi: boolean;
+  sumber: string;
+}
+
 export interface HasilNotifikasi {
   penerima: number;
   /** `true` bila tidak ada psikolog terjadwal jaga sehingga dikirim ke semua psikolog aktif. */
@@ -68,6 +80,28 @@ export class SosNotifikasiService {
     } catch (error) {
       this.logger.error(`Gagal mengirim notifikasi SOS ${sos.id_sos}: ${(error as Error).message}`);
       return { penerima: 0, tanpa_jaga: false };
+    }
+  }
+
+  /**
+   * SOS tereskalasi: semua psikolog aktif (bukan hanya yang jaga) dikabari dan
+   * notifikasi in-app disimpan. Tidak pernah melempar error.
+   */
+  async sosEskalasi(payload: SosEskalasiPayload): Promise<number> {
+    try {
+      const penerima = await this.semuaPsikologAktif();
+      this.gateway.kirimKePsikolog(penerima, EVENT.SOS_ESKALASI, payload);
+      if (penerima.length > 0) {
+        await this.pool.query(
+          `INSERT INTO notifikasi (id_penerima, role, jenis, payload)
+           SELECT penerima, 'PSIKOLOG', 'SOS_BARU', $2::jsonb FROM unnest($1::uuid[]) AS penerima`,
+          [penerima, JSON.stringify({ ...payload, eskalasi: true })],
+        );
+      }
+      return penerima.length;
+    } catch (error) {
+      this.logger.error(`Gagal mengirim notifikasi eskalasi SOS ${payload.id_sos}: ${(error as Error).message}`);
+      return 0;
     }
   }
 

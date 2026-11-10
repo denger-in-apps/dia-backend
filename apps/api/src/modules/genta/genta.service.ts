@@ -16,6 +16,7 @@ import { BuatSosDto, LokasiDto } from './genta.dto';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
 import { SosLokasiService } from './sos-lokasi.service';
 import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
+import { EskalasiSchedulerService } from '../eskalasi/eskalasi-scheduler.service';
 
 export interface Hotline {
   label: string;
@@ -30,6 +31,9 @@ export interface SosMahasiswa {
   status_penanganan: StatusSos;
   lokasi_izin: boolean;
   lokasi_diperbarui_at: Date | null;
+  /** Terisi bila SOS tereskalasi karena tidak direspons tepat waktu (PBI-09). */
+  waktu_eskalasi: Date | null;
+  eskalasi_119: boolean;
   waktu_diambil: Date | null;
   waktu_selesai: Date | null;
 }
@@ -42,7 +46,7 @@ export interface HasilBuatSos {
 }
 
 const SOS_COLUMNS = `id_sos::text AS id_sos, waktu_kejadian, situasi, prioritas, status_penanganan,
-  lokasi_izin, lokasi_diperbarui_at, waktu_diambil, waktu_selesai`;
+  lokasi_izin, lokasi_diperbarui_at, waktu_eskalasi, eskalasi_119, waktu_diambil, waktu_selesai`;
 
 const UNIQUE_VIOLATION = '23505';
 
@@ -54,6 +58,7 @@ export class GentaService {
     private readonly konfirmasi: SosKonfirmasiService,
     private readonly lokasi: SosLokasiService,
     private readonly notifikasi: SosNotifikasiService,
+    private readonly eskalasi: EskalasiSchedulerService,
   ) {}
 
   async mintaKonfirmasi(idMahasiswa: string) {
@@ -129,17 +134,10 @@ export class GentaService {
       );
       await client.query('COMMIT');
       const sos = inserted.rows[0];
-      // Setelah commit: kabari psikolog seketika (FR-PSI-03). Tidak di-await agar respons ke
-      // mahasiswa tidak tertunda; service notifikasi tidak pernah melempar error.
-      void this.notifikasi.sosBaru({
-        id_sos: sos.id_sos,
-        prioritas: sos.prioritas,
-        situasi: sos.situasi,
-        situasi_label: sos.situasi ? SITUASI_SOS[sos.situasi].label : null,
-        waktu_kejadian: new Date(sos.waktu_kejadian).toISOString(),
-        lokasi_tersedia: sos.lokasi_izin,
-        perlu_verifikasi: perluVerifikasi,
-      });
+      // Setelah commit: jalankan timer eskalasi (PBI-09) dan kabari psikolog seketika (FR-PSI-03).
+      // Tidak di-await agar respons ke mahasiswa tidak tertunda; keduanya tidak pernah melempar
+      // error ke sini, dan sweeper DB menjadi jaring pengaman bila penjadwalan gagal.
+      this.lanjutkanSetelahSosDibuat(sos, perluVerifikasi);
       return { baru: true, sos, hotline };
     } catch (error) {
       await client.query('ROLLBACK');
@@ -152,6 +150,22 @@ export class GentaService {
     } finally {
       client.release();
     }
+  }
+
+  private lanjutkanSetelahSosDibuat(sos: SosMahasiswa, perluVerifikasi: boolean): void {
+    void this.eskalasi.jadwalkan(sos.id_sos).catch(() => undefined);
+    void this.notifikasi.sosBaru({
+      id_sos: sos.id_sos,
+      prioritas: sos.prioritas,
+      situasi: sos.situasi,
+      situasi_label: sos.situasi ? SITUASI_SOS[sos.situasi].label : null,
+      waktu_kejadian: new Date(sos.waktu_kejadian).toISOString(),
+      lokasi_tersedia: sos.lokasi_izin,
+      perlu_verifikasi: perluVerifikasi,
+    })
+      // Tidak ada psikolog (jaga) → eskalasi seketika sesuai konfigurasi admin.
+      .then((hasil) => this.eskalasi.tindakLanjutPenerima(sos.id_sos, hasil.penerima, hasil.tanpa_jaga))
+      .catch(() => undefined);
   }
 
   async statusAktif(idMahasiswa: string): Promise<{ sos: SosMahasiswa | null; hotline: Hotline }> {

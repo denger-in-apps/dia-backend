@@ -5,6 +5,7 @@ import { EncryptionService } from '../../common/crypto/encryption.service';
 import { GentaService } from './genta.service';
 import { SosLokasiService } from './sos-lokasi.service';
 import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
+import { EskalasiSchedulerService } from '../eskalasi/eskalasi-scheduler.service';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
 import { tentukanPrioritas } from './genta.constants';
 
@@ -39,6 +40,7 @@ describe('GentaService', () => {
   let aktif: unknown;
   let lokasi: SosLokasiService;
   let notifikasi: { sosBaru: jest.Mock };
+  let eskalasi: { jadwalkan: jest.Mock; tindakLanjutPenerima: jest.Mock };
 
   beforeAll(() => {
     process.env.ENCRYPTION_ACTIVE_KEY_ID = 'test';
@@ -80,9 +82,14 @@ describe('GentaService', () => {
       pakai: jest.fn().mockResolvedValue(true),
     };
     notifikasi = { sosBaru: jest.fn().mockResolvedValue({ penerima: 1, tanpa_jaga: false }) };
+    eskalasi = {
+      jadwalkan: jest.fn().mockResolvedValue({ terjadwal: true, delay_ms: 180_000 }),
+      tindakLanjutPenerima: jest.fn().mockResolvedValue(false),
+    };
     service = new GentaService(
       pool as unknown as Pool, konfirmasi as unknown as SosKonfirmasiService, lokasi,
       notifikasi as unknown as SosNotifikasiService,
+      eskalasi as unknown as EskalasiSchedulerService,
     );
   });
 
@@ -254,5 +261,31 @@ describe('GentaService', () => {
     aktif = { ...sosRow };
     await service.buatSos(mhs, dto);
     expect(notifikasi.sosBaru).not.toHaveBeenCalled();
+  });
+
+  it('starts the escalation timer for every new SOS, including flagged ones', async () => {
+    riwayat.iseng = 5;
+    const result = await service.buatSos(mhs, dto);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(eskalasi.jadwalkan).toHaveBeenCalledWith(result.sos.id_sos);
+    expect(eskalasi.tindakLanjutPenerima).toHaveBeenCalledWith(result.sos.id_sos, 1, false);
+  });
+
+  it('hands nobody-on-duty results to the escalation follow-up', async () => {
+    notifikasi.sosBaru.mockResolvedValue({ penerima: 0, tanpa_jaga: true });
+    const result = await service.buatSos(mhs, dto);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(eskalasi.tindakLanjutPenerima).toHaveBeenCalledWith(result.sos.id_sos, 0, true);
+  });
+
+  it('does not start a second timer for an existing active SOS', async () => {
+    aktif = { ...sosRow };
+    await service.buatSos(mhs, dto);
+    expect(eskalasi.jadwalkan).not.toHaveBeenCalled();
+  });
+
+  it('still answers the student when scheduling the timer fails', async () => {
+    eskalasi.jadwalkan.mockRejectedValue(new Error('redis down'));
+    await expect(service.buatSos(mhs, dto)).resolves.toMatchObject({ baru: true });
   });
 });

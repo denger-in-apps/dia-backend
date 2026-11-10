@@ -15,6 +15,7 @@ Panduan acceptance dan smoke test:
 - [PBI-06 berbagi lokasi darurat](PBI-06-berbagi-lokasi-darurat.md)
 - [PBI-07 notifikasi realtime psikolog](PBI-07-notifikasi-realtime-psikolog.md)
 - [PBI-08 dashboard penanganan SOS](PBI-08-dashboard-penanganan-sos.md)
+- [PBI-09 eskalasi SOS & jadwal jaga](PBI-09-eskalasi-sos.md)
 
 ### Persiapan (PowerShell)
 
