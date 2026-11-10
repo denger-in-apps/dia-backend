@@ -1,6 +1,11 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module, Provider } from '@nestjs/common';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { CryptoModule } from '../../common/crypto/crypto.module';
+import { EskalasiTindakanService } from './eskalasi-tindakan.service';
+import { SMS_PROVIDER } from './sms/sms.provider';
+import { ConsoleSmsProvider } from './sms/console-sms.provider';
+import { HttpSmsProvider } from './sms/http-sms.provider';
 import { ESKALASI_QUEUE } from './eskalasi.constants';
 import { EskalasiProcessor } from './eskalasi.processor';
 import { EskalasiSchedulerService } from './eskalasi-scheduler.service';
@@ -21,6 +26,7 @@ const workerProviders: Provider[] = process.env.ESKALASI_WORKER_AKTIF === 'false
 @Module({
   imports: [
     RealtimeModule,
+    CryptoModule,
     BullModule.forRootAsync({ useFactory: () => ({ connection: redisConnection() }) }),
     BullModule.registerQueue({
       name: ESKALASI_QUEUE,
@@ -33,6 +39,22 @@ const workerProviders: Provider[] = process.env.ESKALASI_WORKER_AKTIF === 'false
     EskalasiService,
     EskalasiSchedulerService,
     EskalasiSweeper,
+    EskalasiTindakanService,
+    ConsoleSmsProvider,
+    HttpSmsProvider,
+    {
+      provide: SMS_PROVIDER,
+      useFactory: (consoleSms: ConsoleSmsProvider, httpSms: HttpSmsProvider) => {
+        const mode = process.env.SMS_PROVIDER || 'console';
+        if (process.env.NODE_ENV === 'production' && mode !== 'http') {
+          throw new Error('Produksi wajib menggunakan SMS_PROVIDER=http');
+        }
+        if (mode === 'console') return consoleSms;
+        if (mode === 'http') return httpSms;
+        throw new Error('SMS_PROVIDER harus bernilai console atau http');
+      },
+      inject: [ConsoleSmsProvider, HttpSmsProvider],
+    },
     ...workerProviders,
   ],
   exports: [EskalasiSchedulerService, EskalasiService, KonfigurasiSosService],

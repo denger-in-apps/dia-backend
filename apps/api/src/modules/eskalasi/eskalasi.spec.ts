@@ -4,6 +4,7 @@ import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
 import { EskalasiProcessor } from './eskalasi.processor';
 import { EskalasiSchedulerService } from './eskalasi-scheduler.service';
 import { EskalasiService } from './eskalasi.service';
+import { EskalasiTindakanService } from './eskalasi-tindakan.service';
 import { EskalasiSweeper } from './eskalasi.sweeper';
 import { KONFIGURASI_DEFAULT, KonfigurasiSosService } from './konfigurasi-sos.service';
 
@@ -12,12 +13,17 @@ const idSos = '55555555-5555-4555-8555-555555555555';
 describe('EskalasiService', () => {
   let pool: { query: jest.Mock };
   let notifikasi: { sosDiperbarui: jest.Mock; sosEskalasi: jest.Mock };
+  let tindakan: { jalankan: jest.Mock };
   let service: EskalasiService;
 
   beforeEach(() => {
     pool = { query: jest.fn() };
     notifikasi = { sosDiperbarui: jest.fn(), sosEskalasi: jest.fn().mockResolvedValue(3) };
-    service = new EskalasiService(pool as unknown as Pool, notifikasi as unknown as SosNotifikasiService);
+    tindakan = { jalankan: jest.fn().mockResolvedValue({ hotline: true, sms_terkirim: 2, sms_gagal: 0, kontak_darurat_dilewati: null }) };
+    service = new EskalasiService(
+      pool as unknown as Pool, notifikasi as unknown as SosNotifikasiService,
+      tindakan as unknown as EskalasiTindakanService,
+    );
   });
 
   it('escalates only a still-unanswered SOS with a single conditional UPDATE', async () => {
@@ -39,6 +45,7 @@ describe('EskalasiService', () => {
       id_sos: idSos, prioritas: 'KRITIS', sumber: 'TIMER',
     }));
     expect(JSON.stringify(notifikasi.sosEskalasi.mock.calls[0][0])).not.toContain('"id_mahasiswa"');
+    expect(tindakan.jalankan).toHaveBeenCalledWith(expect.objectContaining({ id_sos: idSos, id_mahasiswa: 'm' }));
   });
 
   it('still escalates SOS flagged perlu_verifikasi (suspicion never blocks help)', async () => {
@@ -54,6 +61,7 @@ describe('EskalasiService', () => {
     await expect(service.eskalasi(idSos, 'SAPU')).resolves.toBe(false);
     expect(notifikasi.sosDiperbarui).not.toHaveBeenCalled();
     expect(notifikasi.sosEskalasi).not.toHaveBeenCalled();
+    expect(tindakan.jalankan).not.toHaveBeenCalled();
   });
 });
 

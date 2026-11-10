@@ -4,6 +4,7 @@ import { DATABASE_POOL } from '../../database/database.module';
 import { PrioritasSos } from '../../common/domain/sos';
 import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
 import { SumberEskalasi } from './eskalasi.constants';
+import { EskalasiTindakanService } from './eskalasi-tindakan.service';
 
 /** Baris SOS yang baru saja dieskalasi; diteruskan ke tindakan eskalasi (SMS/hotline). */
 export interface SosTereskalasi {
@@ -36,6 +37,7 @@ export class EskalasiService {
   constructor(
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly notifikasi: SosNotifikasiService,
+    private readonly tindakan: EskalasiTindakanService,
   ) {}
 
   /** @returns `true` bila SOS ini benar-benar dieskalasi oleh pemanggil ini. */
@@ -63,6 +65,13 @@ export class EskalasiService {
       perlu_verifikasi: sos.perlu_verifikasi,
       sumber,
     });
+    // SMS kontak darurat & penerima eskalasi + info hotline (SCRUM-235). Hanya pemenang UPDATE
+    // di atas yang sampai di sini, jadi retry job/sweeper tidak mengirim SMS ganda.
+    const tindakan = await this.tindakan.jalankan(sos);
+    this.logger.warn(
+      `SOS ${idSos}: SMS terkirim ${tindakan.sms_terkirim}, gagal ${tindakan.sms_gagal}` +
+      (tindakan.kontak_darurat_dilewati ? `, kontak darurat dilewati (${tindakan.kontak_darurat_dilewati})` : ''),
+    );
     return true;
   }
 }
