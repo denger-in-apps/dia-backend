@@ -4,6 +4,7 @@ import { DATABASE_POOL } from '../../database/database.module';
 import { PrioritasSos, StatusSos } from '../../common/domain/sos';
 import { PsikologGateway } from './psikolog.gateway';
 import { EVENT } from './realtime.constants';
+import { sqlSedangJaga, zonaWaktuJadwal } from '../../common/domain/zona-waktu';
 
 /** Payload `sos:baru`. Sengaja tanpa identitas mahasiswa; detail diambil lewat dashboard. */
 export interface SosBaruPayload {
@@ -119,11 +120,8 @@ export class SosNotifikasiService {
       `SELECT DISTINCT p.id_psikolog::text AS id
        FROM jadwal_jaga j
        JOIN psikolog p ON p.id_psikolog = j.id_psikolog
-       WHERE p.status_akun = 'AKTIF'
-         AND j.tanggal = (now() AT TIME ZONE $1)::date
-         AND (now() AT TIME ZONE $1)::time >= j.jam_mulai
-         AND (now() AT TIME ZONE $1)::time < j.jam_selesai`,
-      [this.zonaWaktu()],
+       WHERE p.status_akun = 'AKTIF' AND ${sqlSedangJaga('$1')}`,
+      [zonaWaktuJadwal()],
     );
     return result.rows.map((row) => row.id);
   }
@@ -135,11 +133,4 @@ export class SosNotifikasiService {
     return result.rows.map((row) => row.id);
   }
 
-  private zonaWaktu(): string {
-    const zona = process.env.JADWAL_ZONA_WAKTU?.trim() || 'Asia/Jakarta';
-    if (!/^[A-Za-z_]+(\/[A-Za-z_+-]+){0,2}$/.test(zona)) {
-      throw new Error('JADWAL_ZONA_WAKTU tidak valid');
-    }
-    return zona;
-  }
 }

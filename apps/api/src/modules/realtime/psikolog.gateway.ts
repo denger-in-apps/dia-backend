@@ -87,6 +87,11 @@ export class PsikologGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     this.server.to(idPsikolog.map(roomPsikolog)).emit(event, payload);
   }
 
+  /** Putuskan semua koneksi realtime seorang psikolog (mis. akun dinonaktifkan admin). */
+  putuskanPsikolog(idPsikolog: string): void {
+    this.server?.in(roomPsikolog(idPsikolog)).disconnectSockets(true);
+  }
+
   /** Kirim event ke semua psikolog yang sedang terhubung. */
   kirimKeSemuaPsikolog(event: string, payload: unknown): void {
     this.server?.to(ROOM_SEMUA_PSIKOLOG).emit(event, payload);

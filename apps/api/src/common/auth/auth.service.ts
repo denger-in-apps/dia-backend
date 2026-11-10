@@ -225,15 +225,69 @@ export class AuthService {
 
   async getCurrentUser(user: AuthenticatedUser): Promise<AuthProfile | null> {
     const queryByRole: Record<UserRole, string> = {
-      MAHASISWA: `SELECT id_mahasiswa::text AS id, 'MAHASISWA'::text AS role, nama, email::text AS email
+      MAHASISWA: `SELECT id_mahasiswa::text AS id, 'MAHASISWA'::text AS role, nama, email::text AS email,
+                         false AS wajib_ganti_password
                   FROM mahasiswa WHERE id_mahasiswa = $1 AND status_aktif AND deleted_at IS NULL`,
-      PSIKOLOG: `SELECT id_psikolog::text AS id, 'PSIKOLOG'::text AS role, nama, email::text AS email
+      PSIKOLOG: `SELECT id_psikolog::text AS id, 'PSIKOLOG'::text AS role, nama, email::text AS email,
+                        wajib_ganti_password
                  FROM psikolog WHERE id_psikolog = $1 AND status_akun = 'AKTIF'`,
-      DOSEN_ADMIN: `SELECT id_dosen::text AS id, 'DOSEN_ADMIN'::text AS role, nama, email::text AS email
+      DOSEN_ADMIN: `SELECT id_dosen::text AS id, 'DOSEN_ADMIN'::text AS role, nama, email::text AS email,
+                           wajib_ganti_password
                     FROM dosen_admin WHERE id_dosen = $1 AND aktif`,
     };
     const result = await this.pool.query(queryByRole[user.role], [user.id]);
     return result.rows[0] ?? null;
+  }
+
+  /**
+   * Staf mengganti password sendiri (mis. password sementara dari admin). Password lama
+   * wajib benar; password baru minimal 12 karakter dan berbeda. Semua sesi lain dicabut.
+   */
+  async gantiPasswordStaf(
+    user: AuthenticatedUser,
+    passwordLama: string,
+    passwordBaru: string,
+  ): Promise<void> {
+    if (user.role === 'MAHASISWA') {
+      throw new ForbiddenException('Password mahasiswa dikelola SSO kampus');
+    }
+    const table = user.role === 'PSIKOLOG' ? 'psikolog' : 'dosen_admin';
+    const column = user.role === 'PSIKOLOG' ? 'id_psikolog' : 'id_dosen';
+    const result = await this.pool.query<{ password_hash: string | null }>(
+      `SELECT password_hash FROM ${table} WHERE ${column} = $1`,
+      [user.id],
+    );
+    const hash = result.rows[0]?.password_hash;
+    let valid = false;
+    try {
+      valid = !!hash && await argon2.verify(hash, passwordLama);
+    } catch {
+      valid = false;
+    }
+    if (!valid) throw new UnauthorizedException('Password lama salah');
+    if (passwordLama === passwordBaru) {
+      throw new ForbiddenException('Password baru harus berbeda dari password lama');
+    }
+    const newHash = await argon2.hash(passwordBaru, { type: argon2.argon2id });
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE ${table} SET password_hash = $2, wajib_ganti_password = false WHERE ${column} = $1`,
+        [user.id, newHash],
+      );
+      await client.query(
+        `UPDATE refresh_token SET revoked_at = COALESCE(revoked_at, now())
+         WHERE id_pengguna = $1 AND role = $2`,
+        [user.id, user.role],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   private async issueSession(

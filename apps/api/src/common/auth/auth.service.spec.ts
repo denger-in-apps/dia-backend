@@ -249,6 +249,41 @@ describe('AuthService', () => {
       expect.stringContaining('auth:totp:used:DOSEN_ADMIN:' + userId + ':'), '1', 'EX', 90, 'NX',
     );
   });
+
+  describe('gantiPasswordStaf', () => {
+    const lama = 'password-lama-123';
+    const staf = { id: userId, role: 'PSIKOLOG' as const };
+
+    beforeEach(async () => {
+      const hash = await argon2.hash(lama);
+      pool.query.mockResolvedValue({ rows: [{ password_hash: hash }] });
+      client.query.mockResolvedValue({ rows: [] });
+    });
+
+    it('replaces the hash, clears the temporary-password flag and revokes all sessions', async () => {
+      await service.gantiPasswordStaf(staf, lama, 'password-baru-456');
+      const update = client.query.mock.calls.find(([sql]) => String(sql).includes('SET password_hash = $2'))!;
+      expect(update[0]).toContain('UPDATE psikolog');
+      expect(update[0]).toContain('wajib_ganti_password = false');
+      await expect(argon2.verify(update[1][1], 'password-baru-456')).resolves.toBe(true);
+      expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE refresh_token'), [userId, 'PSIKOLOG']);
+      expect(client.query).toHaveBeenCalledWith('COMMIT');
+    });
+
+    it('rejects a wrong current password, an unchanged password and students', async () => {
+      await expect(service.gantiPasswordStaf(staf, 'salah-salah-salah', 'password-baru-456'))
+        .rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.gantiPasswordStaf(staf, lama, lama)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.gantiPasswordStaf({ id: userId, role: 'MAHASISWA' }, lama, 'password-baru-456'))
+        .rejects.toBeInstanceOf(ForbiddenException);
+      expect(pool.connect).not.toHaveBeenCalled();
+    });
+
+    it('uses the dosen_admin table for admins', async () => {
+      await service.gantiPasswordStaf({ id: userId, role: 'DOSEN_ADMIN' }, lama, 'password-baru-456');
+      expect(pool.query.mock.calls[0][0]).toContain('FROM dosen_admin WHERE id_dosen = $1');
+    });
+  });
 });
 
 function totp(base32: string, step: number): string {

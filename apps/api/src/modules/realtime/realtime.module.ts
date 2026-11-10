@@ -8,6 +8,6 @@ import { SosNotifikasiService } from './sos-notifikasi.service';
   imports: [AuthModule],
   controllers: [NotifikasiController],
   providers: [PsikologGateway, SosNotifikasiService],
-  exports: [SosNotifikasiService],
+  exports: [SosNotifikasiService, PsikologGateway],
 })
 export class RealtimeModule {}

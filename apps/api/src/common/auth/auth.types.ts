@@ -23,6 +23,8 @@ export interface AuthenticatedUser {
 export interface AuthProfile extends AuthenticatedUser {
   nama: string;
   email: string;
+  /** Staf dengan password sementara (akun baru/reset) wajib menggantinya lewat POST /auth/staff/password. */
+  wajib_ganti_password: boolean;
 }
 
 export interface AuthSession {

@@ -23,6 +23,7 @@ describe('AuthController', () => {
     refresh: jest.Mock;
     logout: jest.Mock;
     getCurrentUser: jest.Mock;
+    gantiPasswordStaf: jest.Mock;
   };
   let sso: {
     createAuthorizationUrl: jest.Mock;
@@ -54,6 +55,7 @@ describe('AuthController', () => {
       }),
       refresh: jest.fn().mockResolvedValue(session),
       logout: jest.fn().mockResolvedValue(undefined),
+      gantiPasswordStaf: jest.fn().mockResolvedValue(undefined),
       getCurrentUser: jest.fn().mockResolvedValue({
         id: 'user-id', role: 'DOSEN_ADMIN', nama: 'Dosen', email: 'dosen@example.edu',
       }),
@@ -259,5 +261,28 @@ describe('AuthController', () => {
     } finally {
       process.env.FRONTEND_LOGIN_FAILURE_URL = saved;
     }
+  });
+
+  it('lets staff change their password and clears the refresh cookie', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/auth/staff/password')
+      .set('Authorization', 'Bearer valid-access-token')
+      .send({ password_lama: 'lama-lama-lama', password_baru: 'baru-baru-baru-1' })
+      .expect(204);
+    expect(auth.gantiPasswordStaf).toHaveBeenCalledWith(
+      { id: 'user-id', role: 'DOSEN_ADMIN' }, 'lama-lama-lama', 'baru-baru-baru-1',
+    );
+    expect(response.headers['set-cookie'][0]).toMatch(/^refresh_token=;/);
+  });
+
+  it('forbids students from the staff password endpoint', async () => {
+    jwt.verifyAsync.mockResolvedValue({ sub: 'mhs', role: 'MAHASISWA', jti: 'j', iat: 1, exp: 9999999999 });
+    pool.query.mockResolvedValue({ rows: [{ nim: '1', status_aktif: true, terakhir_verifikasi_at: new Date() }] });
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/staff/password')
+      .set('Authorization', 'Bearer valid-access-token')
+      .send({ password_lama: 'x', password_baru: 'y' })
+      .expect(403);
+    expect(auth.gantiPasswordStaf).not.toHaveBeenCalled();
   });
 });

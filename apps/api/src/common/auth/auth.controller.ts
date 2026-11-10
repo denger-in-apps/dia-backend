@@ -23,6 +23,9 @@ import { AuthenticatedUser, AuthProfile, AuthSession } from './auth.types';
 import { validate } from 'class-validator';
 import { Public } from './public.decorator';
 import { REFRESH_COOKIE_NAME, refreshCookieOptions } from './refresh-cookie';
+import { Roles } from './roles.decorator';
+import { Role } from './auth.types';
+import { GantiPasswordDto } from './dto/ganti-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -137,6 +140,21 @@ export class AuthController {
     await this.auth.logout(request.cookies?.refresh_token);
     response.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
     response.status(HttpStatus.NO_CONTENT).send();
+  }
+
+  /** Ganti password staf; setelah berhasil semua sesi dicabut sehingga perlu login ulang. */
+  @Post('staff/password')
+  @Roles(Role.PSIKOLOG, Role.DOSEN_ADMIN)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async gantiPassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: GantiPasswordDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    await this.auth.gantiPasswordStaf(user, dto.password_lama, dto.password_baru);
+    response.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
   }
 
   @Get('me')
