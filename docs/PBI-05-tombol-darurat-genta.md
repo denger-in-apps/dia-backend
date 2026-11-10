@@ -50,8 +50,12 @@ tanda bagi psikolog; mahasiswa selalu menerima info hotline.
 | Sekali pakai | `jti` token disimpan di Redis (NX). Bila Redis mati, pengecekan ini dilewati (fail-open) karena dedupe DB tetap berlaku | `422 KONFIRMASI_SUDAH_DIPAKAI` |
 | Pernyataan eksplisit | `konfirmasi: true` dan `situasi` dari daftar tetap | `400` |
 | Dedupe | Advisory lock per mahasiswa + indeks unik parsial `uq_log_sos_aktif_per_mahasiswa`. SOS aktif dikembalikan, bukan dibuat ulang | `200` dengan SOS lama |
-| Frekuensi | Maks. `SOS_MAKS_PER_JAM` (5) SOS baru per akun per jam | `429 SOS_TERLALU_SERING` + `detail.hotline` |
-| Riwayat penyalahgunaan | ≥ `SOS_AMBANG_ISENG_30_HARI` (2) laporan ditandai tidak valid dalam 30 hari, atau ≥ `SOS_AMBANG_BATAL_24_JAM` (3) pembatalan dalam 24 jam | SOS **tetap dibuat**, `perlu_verifikasi = true`, prioritas turun satu tingkat; situasi kritis tidak pernah di bawah `TINGGI` |
+| Frekuensi | Maks. `sos_maks_per_jam` (5) SOS baru per akun per jam | `429 SOS_TERLALU_SERING` + `detail.hotline` |
+| Riwayat penyalahgunaan | ≥ `sos_ambang_iseng_30_hari` (2) laporan ditandai tidak valid dalam 30 hari, atau ≥ `sos_ambang_batal_24_jam` (3) pembatalan dalam 24 jam | SOS **tetap dibuat**, `perlu_verifikasi = true`, prioritas turun satu tingkat; situasi kritis tidak pernah di bawah `TINGGI` |
+
+Ambang frekuensi dan riwayat penyalahgunaan disimpan di `konfigurasi_sos` dan diatur
+Dosen Admin lewat `PUT /admin/konfigurasi-sos` (SCRUM-236; minimal 1 SOS/jam sehingga tombol
+tidak dapat dimatikan). Durasi token dan jeda minimal tetap diatur lewat env.
 
 `ditandai_iseng` diisi psikolog saat menutup kasus sebagai laporan tidak valid
 (dashboard penanganan SOS, SCRUM-232).

@@ -42,16 +42,13 @@ function intEnv(name: string, fallback: number, min: number, max: number): numbe
   return value;
 }
 
-/** Parameter anti-penyalahgunaan; dapat diatur lewat env tanpa ubah kode. */
+/**
+ * Parameter teknis langkah konfirmasi (env). Ambang anti-penyalahgunaan (SOS per jam,
+ * laporan tidak valid, pembatalan) diatur Dosen Admin di `konfigurasi_sos` (SCRUM-236).
+ */
 export const gentaConfig = {
   /** Masa berlaku token konfirmasi (detik). */
   konfirmasiTtlDetik: () => intEnv('SOS_KONFIRMASI_TTL_DETIK', 120, 30, 600),
   /** Jeda minimal antara meminta konfirmasi dan mengirim SOS (ms) — menahan klik otomatis/skrip. */
   jedaMinimalMs: () => intEnv('SOS_JEDA_MINIMAL_MS', 800, 0, 10_000),
-  /** Batas SOS baru per akun per jam (5/jam sesuai 02-backend.md §12). */
-  maksPerJam: () => intEnv('SOS_MAKS_PER_JAM', 5, 1, 60),
-  /** Jumlah laporan tidak valid dalam 30 hari yang memicu `perlu_verifikasi`. */
-  ambangIseng30Hari: () => intEnv('SOS_AMBANG_ISENG_30_HARI', 2, 1, 100),
-  /** Jumlah pembatalan dalam 24 jam yang memicu `perlu_verifikasi`. */
-  ambangBatal24Jam: () => intEnv('SOS_AMBANG_BATAL_24_JAM', 3, 1, 100),
 };

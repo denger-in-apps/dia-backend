@@ -11,12 +11,13 @@ import { randomUUID } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
 import { PrioritasSos, SQL_STATUS_SOS_AKTIF, StatusSos } from '../../common/domain/sos';
-import { gentaConfig, SITUASI_SOS, SituasiSos, tentukanPrioritas } from './genta.constants';
+import { SITUASI_SOS, SituasiSos, tentukanPrioritas } from './genta.constants';
 import { BuatSosDto, LokasiDto } from './genta.dto';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
 import { SosLokasiService } from './sos-lokasi.service';
 import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
 import { EskalasiSchedulerService } from '../eskalasi/eskalasi-scheduler.service';
+import { KonfigurasiSosService } from '../eskalasi/konfigurasi-sos.service';
 
 export interface Hotline {
   label: string;
@@ -59,6 +60,7 @@ export class GentaService {
     private readonly lokasi: SosLokasiService,
     private readonly notifikasi: SosNotifikasiService,
     private readonly eskalasi: EskalasiSchedulerService,
+    private readonly konfigurasi: KonfigurasiSosService,
   ) {}
 
   async mintaKonfirmasi(idMahasiswa: string) {
@@ -75,7 +77,9 @@ export class GentaService {
 
   async buatSos(idMahasiswa: string, dto: BuatSosDto): Promise<HasilBuatSos> {
     const { jti } = await this.konfirmasi.verifikasi(idMahasiswa, dto.token_konfirmasi);
-    const hotline = await this.hotline();
+    // Ambang anti-penyalahgunaan diatur Dosen Admin di konfigurasi_sos (SCRUM-236).
+    const config = await this.konfigurasi.ambil();
+    const hotline = { label: config.hotline_label, aktif: config.hotline_aktif };
 
     const client = await this.pool.connect();
     try {
@@ -111,7 +115,7 @@ export class GentaService {
         [idMahasiswa],
       );
       const { per_jam, iseng, batal } = riwayat.rows[0];
-      if (per_jam >= gentaConfig.maksPerJam()) {
+      if (per_jam >= config.sos_maks_per_jam) {
         throw new HttpException({
           kode: 'SOS_TERLALU_SERING',
           pesan: 'Terlalu banyak permintaan SOS dalam satu jam. Jika Anda dalam bahaya, segera hubungi hotline.',
@@ -119,7 +123,7 @@ export class GentaService {
         }, HttpStatus.TOO_MANY_REQUESTS);
       }
 
-      const perluVerifikasi = iseng >= gentaConfig.ambangIseng30Hari() || batal >= gentaConfig.ambangBatal24Jam();
+      const perluVerifikasi = iseng >= config.sos_ambang_iseng_30_hari || batal >= config.sos_ambang_batal_24_jam;
       const idSos = randomUUID();
       const koordinat = dto.lokasi ? this.lokasi.enkripsi(idSos, dto.lokasi) : null;
       const inserted = await client.query<SosMahasiswa>(
@@ -261,10 +265,7 @@ export class GentaService {
   }
 
   private async hotline(): Promise<Hotline> {
-    const result = await this.pool.query<{ hotline_label: string; hotline_aktif: boolean }>(
-      `SELECT hotline_label, hotline_aktif FROM konfigurasi_sos WHERE id = 1`,
-    );
-    const row = result.rows[0];
-    return { label: row?.hotline_label ?? 'Healing119.id — 119 ext. 8', aktif: row?.hotline_aktif ?? true };
+    const config = await this.konfigurasi.ambil();
+    return { label: config.hotline_label, aktif: config.hotline_aktif };
   }
 }

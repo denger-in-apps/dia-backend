@@ -2,6 +2,9 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module, Provider } from '@nestjs/common';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { CryptoModule } from '../../common/crypto/crypto.module';
+import { AuditModule } from '../../common/audit/audit.module';
+import { AdminEskalasiController } from './admin-eskalasi.controller';
+import { PenerimaEskalasiService } from './penerima-eskalasi.service';
 import { EskalasiTindakanService } from './eskalasi-tindakan.service';
 import { SMS_PROVIDER } from './sms/sms.provider';
 import { ConsoleSmsProvider } from './sms/console-sms.provider';
@@ -27,6 +30,7 @@ const workerProviders: Provider[] = process.env.ESKALASI_WORKER_AKTIF === 'false
   imports: [
     RealtimeModule,
     CryptoModule,
+    AuditModule,
     BullModule.forRootAsync({ useFactory: () => ({ connection: redisConnection() }) }),
     BullModule.registerQueue({
       name: ESKALASI_QUEUE,
@@ -34,8 +38,10 @@ const workerProviders: Provider[] = process.env.ESKALASI_WORKER_AKTIF === 'false
       connection: { ...redisConnection(), enableOfflineQueue: false },
     }),
   ],
+  controllers: [AdminEskalasiController],
   providers: [
     KonfigurasiSosService,
+    PenerimaEskalasiService,
     EskalasiService,
     EskalasiSchedulerService,
     EskalasiSweeper,

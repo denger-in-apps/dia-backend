@@ -6,6 +6,7 @@ import { GentaService } from './genta.service';
 import { SosLokasiService } from './sos-lokasi.service';
 import { SosNotifikasiService } from '../realtime/sos-notifikasi.service';
 import { EskalasiSchedulerService } from '../eskalasi/eskalasi-scheduler.service';
+import { KONFIGURASI_DEFAULT, KonfigurasiSos, KonfigurasiSosService } from '../eskalasi/konfigurasi-sos.service';
 import { SosKonfirmasiService } from './sos-konfirmasi.service';
 import { tentukanPrioritas } from './genta.constants';
 
@@ -41,6 +42,7 @@ describe('GentaService', () => {
   let lokasi: SosLokasiService;
   let notifikasi: { sosBaru: jest.Mock };
   let eskalasi: { jadwalkan: jest.Mock; tindakLanjutPenerima: jest.Mock };
+  let config: KonfigurasiSos;
 
   beforeAll(() => {
     process.env.ENCRYPTION_ACTIVE_KEY_ID = 'test';
@@ -82,6 +84,7 @@ describe('GentaService', () => {
       pakai: jest.fn().mockResolvedValue(true),
     };
     notifikasi = { sosBaru: jest.fn().mockResolvedValue({ penerima: 1, tanpa_jaga: false }) };
+    config = { ...KONFIGURASI_DEFAULT };
     eskalasi = {
       jadwalkan: jest.fn().mockResolvedValue({ terjadwal: true, delay_ms: 180_000 }),
       tindakLanjutPenerima: jest.fn().mockResolvedValue(false),
@@ -90,6 +93,7 @@ describe('GentaService', () => {
       pool as unknown as Pool, konfirmasi as unknown as SosKonfirmasiService, lokasi,
       notifikasi as unknown as SosNotifikasiService,
       eskalasi as unknown as EskalasiSchedulerService,
+      { ambil: jest.fn(async () => config) } as unknown as KonfigurasiSosService,
     );
   });
 
@@ -287,5 +291,21 @@ describe('GentaService', () => {
   it('still answers the student when scheduling the timer fails', async () => {
     eskalasi.jadwalkan.mockRejectedValue(new Error('redis down'));
     await expect(service.buatSos(mhs, dto)).resolves.toMatchObject({ baru: true });
+  });
+
+  it('uses the admin-configured abuse thresholds (SCRUM-236)', async () => {
+    config = { ...config, sos_maks_per_jam: 2 };
+    riwayat.per_jam = 2;
+    await expect(service.buatSos(mhs, dto)).rejects.toMatchObject({ status: 429 });
+
+    config = { ...KONFIGURASI_DEFAULT, sos_ambang_iseng_30_hari: 1 };
+    riwayat = { per_jam: 0, iseng: 1, batal: 0 };
+    await service.buatSos(mhs, dto);
+    expect(insertCall()![1][5 - 1]).toBe(true);
+  });
+
+  it('returns the admin-configured hotline label', async () => {
+    config = { ...config, hotline_label: 'Hotline Kampus 1500-xxx' };
+    await expect(service.statusAktif(mhs)).resolves.toMatchObject({ hotline: { label: 'Hotline Kampus 1500-xxx', aktif: true } });
   });
 });

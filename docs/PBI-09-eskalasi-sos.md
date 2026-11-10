@@ -12,6 +12,7 @@ Catatan: judul FR-ADM-02 menyebut "petugas", tetapi deskripsinya hanya psikolog;
 |---|---|---|
 | [BE] Timer eskalasi 3 menit (Redis) | SCRUM-234 | [§1](#1-timer-eskalasi-scrum-234) |
 | [BE] Integrasi SMS Gateway ke kontak darurat dan hotline 119 ext. 8 | SCRUM-235 | [§2](#2-sms-gateway--hotline-scrum-235) |
+| [FE][BE] Konfigurasi eskalasi SOS oleh dosen admin (FR-ADM-05) | SCRUM-236 | [§3](#3-konfigurasi-eskalasi-oleh-dosen-admin-scrum-236) |
 
 ---
 
@@ -108,8 +109,8 @@ tidak dapat dipakai untuk mengganggu keluarga tanpa mengorbankan keselamatan:
 | Situasi kritis (`INGIN_MENYAKITI_DIRI`, `DALAM_BAHAYA`) | Dikabari walaupun `perlu_verifikasi` |
 | ≥ `maks_eskalasi_kontak_per_hari` (default 3) eskalasi lain yang sudah mengabari kontak darurat dalam 24 jam | Dilewati (`BATAS_HARIAN`) |
 
-Penerima eskalasi kampus tetap selalu dikabari pada semua kondisi di atas. Nilai default
-kebijakan dapat diatur Dosen Admin (SCRUM-236).
+Penerima eskalasi kampus tetap selalu dikabari pada semua kondisi di atas. Kebijakan ini
+diatur Dosen Admin (§3).
 
 ### Isi SMS
 
@@ -145,3 +146,68 @@ npm test -- --runInBand src/modules/eskalasi
 
 Dengan `SMS_PROVIDER=console`, log API menampilkan baris `[SIMULASI] SMS ke 0812*****890`
 untuk setiap penerima saat SOS tereskalasi.
+
+---
+
+## 3. Konfigurasi eskalasi oleh Dosen Admin (SCRUM-236)
+
+Konfigurasi runtime disimpan di baris tunggal `konfigurasi_sos` (bukan env) sehingga
+dapat diubah tanpa deploy (02-backend.md §4). Semua endpoint: prefix `/api/v1`,
+Bearer token, hanya role `DOSEN_ADMIN` (role lain `403`).
+
+| Method | Path | Keterangan |
+|---|---|---|
+| GET | `/admin/konfigurasi-sos` | Konfigurasi saat ini (+ `diubah_oleh`, `updated_at`) |
+| PUT | `/admin/konfigurasi-sos` | Ubah konfigurasi; **hanya field yang dikirim yang berubah** |
+| GET | `/admin/penerima-eskalasi` | Daftar penerima SMS kampus (nomor tersamar) |
+| POST | `/admin/penerima-eskalasi` | `{ nama, no_telepon, aktif? }` (maks. 20) |
+| PATCH | `/admin/penerima-eskalasi/:id` | Ubah nama/nomor/aktif |
+| DELETE | `/admin/penerima-eskalasi/:id` | Hapus penerima |
+
+### Field konfigurasi
+
+| Field | Default | Rentang | Dipakai oleh |
+|---|---|---|---|
+| `durasi_eskalasi_detik` | 180 | 30–1800 | Timer §1 (berlaku untuk SOS baru) |
+| `eskalasi_segera_jika_tidak_ada_psikolog` | `true` | — | Eskalasi seketika bila tidak ada psikolog jaga |
+| `hotline_label` | `Healing119.id — 119 ext. 8` | 3–100 karakter | Respons mahasiswa & teks SMS |
+| `hotline_aktif` | `true` | — | Info hotline & `eskalasi_119` |
+| `kontak_darurat_aktif` | `true` | — | SMS kontak darurat (§2) |
+| `kontak_darurat_untuk_perlu_verifikasi` | `false` | — | Kabari kontak darurat untuk SOS `perlu_verifikasi` non-kritis |
+| `maks_eskalasi_kontak_per_hari` | 3 | 1–10 | Batas SMS kontak darurat per mahasiswa / 24 jam |
+| `sos_maks_per_jam` | 5 | **1**–60 | Batas SOS baru per akun per jam (PBI-05) |
+| `sos_ambang_iseng_30_hari` | 2 | 1–100 | Laporan tidak valid → `perlu_verifikasi` (PBI-05) |
+| `sos_ambang_batal_24_jam` | 3 | 1–100 | Pembatalan → `perlu_verifikasi` (PBI-05) |
+
+Rentang divalidasi di API dan ditegakkan ulang dengan `CHECK` di database. Batas bawah
+`sos_maks_per_jam = 1` mencegah konfigurasi yang mematikan tombol SOS. Ambang anti-iseng
+PBI-05 sebelumnya berupa env (`SOS_MAKS_PER_JAM`, dst.) dan kini dipindah ke sini;
+`SOS_KONFIRMASI_TTL_DETIK` dan `SOS_JEDA_MINIMAL_MS` tetap env karena bersifat teknis.
+
+Setiap perubahan dicatat `KONFIGURASI_SOS_UBAH` di audit log beserta nilai sebelum/sesudah
+field yang berubah, dan `diubah_oleh` diisi admin pengubah.
+
+### Penerima eskalasi
+
+Nomor divalidasi (8–15 digit, boleh `+`, spasi/tanda hubung dibuang), dienkripsi dengan AAD
+`penerima_eskalasi:no_telepon_enc:<id>`, dan API hanya mengembalikan `no_telepon_masked`.
+Aksi dicatat `PENERIMA_ESKALASI_BUAT` / `_UBAH` / `_HAPUS`.
+
+Migrasi `1793700500000-KonfigurasiEskalasi` menambah kolom kebijakan & ambang serta trigger
+`updated_at` pada `konfigurasi_sos`.
+
+### Cara cek
+
+```powershell
+cd apps/api
+npm test -- --runInBand src/modules/eskalasi/admin-eskalasi.spec.ts
+```
+
+Manual (token dosen admin):
+
+```powershell
+curl.exe -k -i -X PUT https://localhost:18443/api/v1/admin/konfigurasi-sos -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" --data-raw '{"durasi_eskalasi_detik":30}'
+curl.exe -k -i -X POST https://localhost:18443/api/v1/admin/penerima-eskalasi -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" --data-raw '{"nama":"Satgas Kampus","no_telepon":"081234567890"}'
+```
