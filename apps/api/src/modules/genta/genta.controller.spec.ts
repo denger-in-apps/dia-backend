@@ -200,8 +200,10 @@ describe('GentaController', () => {
     });
 
     it('lists the queue with validated filters', async () => {
-      await request(app.getHttpServer())
+      const list = await request(app.getHttpServer())
         .get('/api/v1/psikolog/sos?cakupan=milik_saya&limit=20').set('Authorization', bearer('PSIKOLOG')).expect(200);
+      // Daftar dapat memuat nama mahasiswa (kasus milik sendiri) → tidak boleh di-cache.
+      expect(list.headers['cache-control']).toBe('no-store');
       expect(gentaPsikolog.daftar).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, { cakupan: 'milik_saya', limit: 20 });
       for (const cakupan of ['aktif', 'antrean', 'riwayat']) {
         await request(app.getHttpServer())

@@ -33,7 +33,13 @@ export class GentaPsikologController {
   constructor(private readonly genta: GentaPsikologService) {}
 
   @Get()
-  daftar(@CurrentUser() user: AuthenticatedUser, @Query() query: DaftarSosQuery) {
+  daftar(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: DaftarSosQuery,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    // Daftar dapat memuat nama mahasiswa (kasus milik sendiri): jangan disimpan cache browser/proxy.
+    response.setHeader('Cache-Control', 'no-store');
     return this.genta.daftar(user, query);
   }
 
