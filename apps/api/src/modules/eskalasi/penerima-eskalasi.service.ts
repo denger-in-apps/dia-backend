@@ -1,7 +1,8 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { EncryptionService } from '../../common/crypto/encryption.service';
@@ -47,7 +48,7 @@ export class PenerimaEskalasiService {
   }
 
   async buat(admin: AuthenticatedUser, dto: BuatPenerimaEskalasiDto, ctx: Ctx): Promise<PenerimaEskalasi> {
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtextextended('penerima_eskalasi', 0))`);
       const count = await client.query<{ jumlah: number }>(`SELECT count(*)::int AS jumlah FROM penerima_eskalasi`);
       if (count.rows[0].jumlah >= MAKS_PENERIMA_ESKALASI) {
@@ -78,7 +79,7 @@ export class PenerimaEskalasiService {
     if (dto.no_telepon !== undefined) { values.push(this.encrypt(id, dto.no_telepon)); sets.push(`no_telepon_enc = $${values.length}`); }
     if (dto.aktif !== undefined) { values.push(dto.aktif); sets.push(`aktif = $${values.length}`); }
 
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       const result = sets.length
         ? await client.query<Row>(
           `UPDATE penerima_eskalasi SET ${sets.join(', ')} WHERE id = $1
@@ -102,7 +103,7 @@ export class PenerimaEskalasiService {
   }
 
   async hapus(admin: AuthenticatedUser, id: string, ctx: Ctx): Promise<void> {
-    await this.inTransaction(async (client) => {
+    await denganTransaksi(this.pool, async (client) => {
       const result = await client.query(`DELETE FROM penerima_eskalasi WHERE id = $1`, [id]);
       if (result.rowCount !== 1) throw this.notFound();
       await this.audit.catat({
@@ -110,21 +111,6 @@ export class PenerimaEskalasiService {
         ip: ctx.ip, userAgent: ctx.userAgent,
       }, client);
     });
-  }
-
-  private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
   }
 
   private encrypt(id: string, nomor: string): Buffer {

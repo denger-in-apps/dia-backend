@@ -3,6 +3,7 @@ import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { zonaWaktuJadwal } from '../../common/domain/zona-waktu';
@@ -72,7 +73,7 @@ export class AdminPsikologService {
   async buat(admin: AuthenticatedUser, dto: BuatPsikologDto, ctx: Ctx) {
     const password = passwordSementara();
     const hash = await argon2.hash(password, { type: argon2.argon2id });
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       let id: string;
       try {
         const result = await client.query<{ id: string }>(
@@ -98,7 +99,7 @@ export class AdminPsikologService {
     if (dto.nama !== undefined) { values.push(dto.nama); sets.push(`nama = $${values.length}`); }
     if (dto.email !== undefined) { values.push(dto.email); sets.push(`email = $${values.length}`); }
     if (sets.length === 0) return this.detail(id);
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       try {
         const result = await client.query(`UPDATE psikolog SET ${sets.join(', ')} WHERE id_psikolog = $1`, values);
         if (result.rowCount !== 1) throw this.notFound();
@@ -114,7 +115,7 @@ export class AdminPsikologService {
   }
 
   async aktifkan(admin: AuthenticatedUser, id: string, ctx: Ctx): Promise<PsikologAdmin> {
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       const result = await client.query(
         `UPDATE psikolog SET status_akun = 'AKTIF', diverifikasi_oleh = $2, diverifikasi_at = now()
          WHERE id_psikolog = $1 AND status_akun <> 'AKTIF'`,
@@ -131,7 +132,7 @@ export class AdminPsikologService {
    * ke semua psikolog aktif; jadwal jaga mendatang dihapus; sesi & koneksi realtime diputus.
    */
   async nonaktifkan(admin: AuthenticatedUser, id: string, ctx: Ctx) {
-    const hasil = await this.inTransaction(async (client) => {
+    const hasil = await denganTransaksi(this.pool, async (client) => {
       const updated = await client.query(
         `UPDATE psikolog SET status_akun = 'NONAKTIF', status_jaga = false
          WHERE id_psikolog = $1 AND status_akun <> 'NONAKTIF'`,
@@ -202,7 +203,7 @@ export class AdminPsikologService {
   async resetPassword(admin: AuthenticatedUser, id: string, ctx: Ctx) {
     const password = passwordSementara();
     const hash = await argon2.hash(password, { type: argon2.argon2id });
-    await this.inTransaction(async (client) => {
+    await denganTransaksi(this.pool, async (client) => {
       const result = await client.query(
         `UPDATE psikolog SET password_hash = $2, wajib_ganti_password = true WHERE id_psikolog = $1`,
         [id, hash],
@@ -236,21 +237,6 @@ export class AdminPsikologService {
       aktor: admin, aksi, resourceType: 'psikolog', resourceId: id,
       ip: ctx.ip, userAgent: ctx.userAgent, metadata,
     }, client);
-  }
-
-  private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
   }
 
   private notFound(): NotFoundException {

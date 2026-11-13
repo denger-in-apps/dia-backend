@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { EncryptionService } from '../../common/crypto/encryption.service';
@@ -157,7 +158,7 @@ export class GentaPsikologService {
    * dua psikolog yang mengambil bersamaan → tepat satu berhasil, lainnya 409.
    */
   async ambil(psikolog: AuthenticatedUser, idSos: string, ctx: KonteksPermintaan) {
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       const result = await client.query<{ id_sos: string; status_penanganan: StatusSos; id_psikolog: string; waktu_diambil: Date }>(
         `UPDATE log_sos
          SET id_psikolog = $1, status_penanganan = 'DIAMBIL', waktu_diambil = now()
@@ -203,7 +204,7 @@ export class GentaPsikologService {
       ? this.encryption.encrypt(dto.catatan, this.aadCatatan(idSos))
       : null;
 
-    const updated = await this.inTransaction(async (client) => {
+    const updated = await denganTransaksi(this.pool, async (client) => {
       const result = await client.query<{ id_sos: string; status_penanganan: StatusSos; id_psikolog: string }>(
         `UPDATE log_sos
          SET status_penanganan = $3::status_sos,
@@ -292,21 +293,6 @@ export class GentaPsikologService {
     );
     if (!result.rows[0]) throw this.sosTidakDitemukan();
     return result.rows[0];
-  }
-
-  private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
   }
 
   private withLabel<T extends { situasi: SituasiSos | null }>(row: T): T & { situasi_label: string | null } {

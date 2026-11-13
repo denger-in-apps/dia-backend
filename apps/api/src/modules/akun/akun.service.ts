@@ -8,6 +8,7 @@ import {
 import { randomUUID } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { SQL_STATUS_SOS_AKTIF } from '../../common/domain/sos';
@@ -77,7 +78,7 @@ export class AkunService {
   }
 
   async tambahKontak(idMahasiswa: string, dto: CreateKontakDaruratDto): Promise<KontakDarurat> {
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       // Kunci baris mahasiswa agar batas jumlah kontak tidak terlewati oleh request paralel.
       await this.lockMahasiswa(client, idMahasiswa);
       const count = await client.query<{ jumlah: number }>(
@@ -218,7 +219,7 @@ export class AkunService {
    * Ditolak selama mahasiswa masih punya SOS yang berjalan (fitur keselamatan).
    */
   async hapusAkun(idMahasiswa: string, context: RequestContext): Promise<void> {
-    await this.inTransaction(async (client) => {
+    await denganTransaksi(this.pool, async (client) => {
       await this.lockMahasiswa(client, idMahasiswa);
 
       const sosAktif = await client.query(
@@ -303,21 +304,6 @@ export class AkunService {
     );
     if (!result.rowCount) {
       throw new NotFoundException({ kode: 'AKUN_TIDAK_DITEMUKAN', pesan: 'Akun tidak ditemukan' });
-    }
-  }
-
-  private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
     }
   }
 

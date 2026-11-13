@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { zonaWaktuJadwal } from '../../common/domain/zona-waktu';
@@ -77,7 +78,7 @@ export class JadwalJagaService {
 
   async buat(admin: AuthenticatedUser, dto: BuatJadwalDto, ctx: Ctx): Promise<JadwalJaga> {
     this.validasiJam(dto.tanggal, dto.jam_mulai, dto.jam_selesai);
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       await this.validasiPsikologDanWaktu(client, dto.id_psikolog, dto.tanggal, dto.jam_selesai);
       const id = await this.tulis(client, () => client.query<{ id: string }>(
         `INSERT INTO jadwal_jaga (tanggal, jam_mulai, jam_selesai, id_psikolog, id_dosen)
@@ -90,7 +91,7 @@ export class JadwalJagaService {
   }
 
   async ubah(admin: AuthenticatedUser, id: string, dto: UbahJadwalDto, ctx: Ctx): Promise<JadwalJaga> {
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       const current = await this.detailDengan(client, id, true);
       const next = {
         id_psikolog: dto.id_psikolog ?? current.id_psikolog,
@@ -111,7 +112,7 @@ export class JadwalJagaService {
   }
 
   async hapus(admin: AuthenticatedUser, id: string, ctx: Ctx): Promise<void> {
-    await this.inTransaction(async (client) => {
+    await denganTransaksi(this.pool, async (client) => {
       const result = await client.query(`DELETE FROM jadwal_jaga WHERE id_jadwal = $1`, [id]);
       if (result.rowCount !== 1) throw this.notFound();
       await this.catat(client, admin, 'JADWAL_JAGA_HAPUS', id, ctx);
@@ -192,21 +193,6 @@ export class JadwalJagaService {
     return this.audit.catat({
       aktor: admin, aksi, resourceType: 'jadwal_jaga', resourceId: id, ip: ctx.ip, userAgent: ctx.userAgent, metadata,
     }, client);
-  }
-
-  private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
   }
 
   private notFound(): NotFoundException {

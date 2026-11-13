@@ -10,6 +10,7 @@ import {
 import { randomUUID } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import {
   aadSesi,
@@ -122,7 +123,7 @@ export class BookingService {
     const keluhan = this.encryption.encrypt(dto.keluhan_awal, aadSesi('keluhan_awal_enc', idSesi));
     let row: SesiRow;
     try {
-      row = await this.inTransaction(async (client) => {
+      row = await denganTransaksi(this.pool, async (client) => {
         // Kunci baris mahasiswa: batas sesi aktif tidak boleh terlewati oleh request paralel.
         await this.lockMahasiswa(client, idMahasiswa);
         await this.cekBatasSesiAktif(client, idMahasiswa);
@@ -182,7 +183,7 @@ export class BookingService {
 
     let hasil: { sebelum: SesiRow; sesudah: SesiRow };
     try {
-      hasil = await this.inTransaction(async (client) => {
+      hasil = await denganTransaksi(this.pool, async (client) => {
         // Kunci & periksa ulang di dalam transaksi: status/jadwal bisa berubah sejak pembacaan awal.
         const sebelum = await this.ambilRow(client, idMahasiswa, idSesi, true);
         this.pastikanBisaDiubah(sebelum, 'ubah');
@@ -212,7 +213,7 @@ export class BookingService {
 
   /** Batalkan sesi milik sendiri sebelum dimulai (PBI-12; use case Booking alt 5.c). */
   async batal(idMahasiswa: string, idSesi: string, dto: BatalBookingDto): Promise<SesiMahasiswa> {
-    const sesi = await this.inTransaction(async (client) => {
+    const sesi = await denganTransaksi(this.pool, async (client) => {
       const sebelum = await this.ambilRow(client, idMahasiswa, idSesi, true);
       this.pastikanBisaDiubah(sebelum, 'batal');
       await client.query(
@@ -412,21 +413,6 @@ export class BookingService {
       kode: 'SLOT_TIDAK_VALID',
       pesan: 'Waktu tidak sesuai slot jadwal psikolog, terlalu dekat, atau di luar rentang booking',
     });
-  }
-
-  protected async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
   }
 
   private validasiTanggal(tanggal: string): void {

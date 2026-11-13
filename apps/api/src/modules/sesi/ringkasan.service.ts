@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { EncryptionService } from '../../common/crypto/encryption.service';
@@ -70,7 +71,7 @@ export class RingkasanService {
 
   /** Mahasiswa memberi/menarik consent pencatatan ringkasan untuk sesinya. */
   async aturConsent(mahasiswa: AuthenticatedUser, idSesi: string, setuju: boolean, ctx: KonteksPermintaan): Promise<Consent> {
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       const current = await client.query<{ status_sesi: StatusSesi; consent_catatan: boolean }>(
         `SELECT status_sesi, consent_catatan FROM sesi_konseling
          WHERE id_sesi = $1 AND id_mahasiswa = $2 FOR UPDATE`,
@@ -105,7 +106,7 @@ export class RingkasanService {
   /** Psikolog sesi menulis/memperbarui ringkasan; `403 CONSENT_BELUM_ADA` tanpa consent. */
   async simpan(psikolog: AuthenticatedUser, idSesi: string, ringkasan: string, ctx: KonteksPermintaan): Promise<Ringkasan> {
     const enc = this.encryption.encrypt(ringkasan, aadSesi('catatan_ringkasan_enc', idSesi));
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       // Kunci baris: penarikan consent oleh mahasiswa yang bersamaan menunggu, bukan tertimpa.
       const current = await client.query<{ status_sesi: StatusSesi; consent_catatan: boolean; ada: boolean }>(
         `SELECT status_sesi, consent_catatan, (catatan_ringkasan_enc IS NOT NULL) AS ada
@@ -211,21 +212,6 @@ export class RingkasanService {
 
   private dekripsi(idSesi: string, enc: Buffer): string {
     return this.encryption.decrypt(enc, aadSesi('catatan_ringkasan_enc', idSesi)).toString('utf8');
-  }
-
-  private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
   }
 
   private consentBelumAda(): ForbiddenException {

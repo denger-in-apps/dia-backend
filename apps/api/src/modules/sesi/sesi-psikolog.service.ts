@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
+import { denganTransaksi } from '../../database/transaksi';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { EncryptionService } from '../../common/crypto/encryption.service';
@@ -142,7 +143,7 @@ export class SesiPsikologService {
     ctx: KonteksPermintaan,
   ): Promise<StatusSesiBaru> {
     const transisi = TRANSISI[dto.status];
-    return this.inTransaction(async (client) => {
+    return denganTransaksi(this.pool, async (client) => {
       const result = await client.query<StatusSesiBaru>(
         `UPDATE sesi_konseling s SET status_sesi = $3::status_sesi
          WHERE s.id_sesi = $1 AND s.id_psikolog = $2 AND s.status_sesi = $4::status_sesi AND ${transisi.syarat}
@@ -191,21 +192,6 @@ export class SesiPsikologService {
   private toDto(row: SesiRow): SesiPsikolog {
     const { id_mahasiswa, nama_mahasiswa, ...rest } = row;
     return { ...rest, mahasiswa: { id: id_mahasiswa, nama: nama_mahasiswa } };
-  }
-
-  private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await work(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
   }
 
   private sesiTidakDitemukan(): NotFoundException {
