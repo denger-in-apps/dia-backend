@@ -1,4 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { Logger } from 'nestjs-pino';
+import { pasangSwagger, swaggerAktif } from './common/logging/swagger';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import cookieParser = require('cookie-parser');
@@ -9,7 +11,8 @@ import { validasiEnv } from './common/config/validasi-env';
 async function bootstrap() {
   // Gagal cepat dengan daftar lengkap kesalahan konfigurasi (02-backend.md §4).
   validasiEnv();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
   app.use(helmet({ hsts: process.env.NODE_ENV === 'production' ? undefined : false }));
   app.use(cookieParser());
   configureApp(app);
@@ -26,6 +29,7 @@ async function bootstrap() {
     await ioAdapter.connectToRedis();
     app.useWebSocketAdapter(ioAdapter);
   }
+  if (swaggerAktif()) pasangSwagger(app);
   app.enableShutdownHooks();
 
   const port = process.env.PORT || 3000;

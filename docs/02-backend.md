@@ -58,7 +58,12 @@ pnpm add -D @types/passport @types/cookie-parser @types/pg testcontainers
 }
 ```
 
-`main.ts` (konfigurasi minimum):
+`main.ts` (konfigurasi minimum). **Status implementasi:** logger `nestjs-pino` dengan redaksi
+header `Authorization`/`Cookie`/`Set-Cookie` dan URL tanpa query string
+(`common/logging/logging.config.ts`); Swagger UI di `/api/docs` dan JSON di `/api/docs-json`
+aktif di luar produksi (`SWAGGER_AKTIF` untuk menimpa), skema DTO dari plugin `@nestjs/swagger`
+di `nest-cli.json`. `AllExceptionsFilter` belum dibuat — format error mengikuti body
+`{ kode, pesan, detail? }` dari tiap exception.
 
 ```ts
 const app = await NestFactory.create(AppModule, { bufferLogs: true });

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { konfigurasiLogger } from './common/logging/logging.config';
 import { HealthModule } from './common/health/health.module';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { AuthModule } from './common/auth/auth.module';
@@ -14,7 +16,7 @@ import { SesiModule } from './modules/sesi/sesi.module';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(), HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule,
+    LoggerModule.forRoot(konfigurasiLogger()), ScheduleModule.forRoot(), HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule,
     GentaModule, RealtimeModule, AdminStafModule, BookingModule, SesiModule,
   ],
 })
