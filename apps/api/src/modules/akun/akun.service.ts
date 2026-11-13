@@ -12,6 +12,7 @@ import { denganTransaksi } from '../../database/transaksi';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { SQL_STATUS_SOS_AKTIF } from '../../common/domain/sos';
+import { AkademikService } from '../akademik/akademik.service';
 import { CreateKontakDaruratDto, UpdateKontakDaruratDto, UpdateProfilDto } from './akun.dto';
 import {
   EksporDataMahasiswa,
@@ -43,6 +44,7 @@ export class AkunService {
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly encryption: EncryptionService,
     private readonly audit: AuditService,
+    private readonly akademik: AkademikService,
   ) {}
 
   async profil(idMahasiswa: string): Promise<ProfilMahasiswa> {
@@ -219,8 +221,9 @@ export class AkunService {
    * Ditolak selama mahasiswa masih punya SOS yang berjalan (fitur keselamatan).
    */
   async hapusAkun(idMahasiswa: string, context: RequestContext): Promise<void> {
-    await denganTransaksi(this.pool, async (client) => {
-      await this.lockMahasiswa(client, idMahasiswa);
+    const nimAsli = await denganTransaksi(this.pool, async (client) => {
+      // NIM asli dibaca sebelum dianonimkan untuk membersihkan cache akademik setelah commit.
+      const nim = await this.lockMahasiswa(client, idMahasiswa);
 
       const sosAktif = await client.query(
         `SELECT 1 FROM log_sos
@@ -294,17 +297,24 @@ export class AkunService {
         },
         client,
       );
+      return nim;
     });
+
+    // Setelah commit: NIM tidak boleh tersisa di cache Redis `akademik:{nim}`.
+    // Tidak dilakukan sebelum commit agar rollback tidak menghapus cache akun yang masih ada.
+    await this.akademik.hapusCache(nimAsli);
   }
 
-  private async lockMahasiswa(client: PoolClient, idMahasiswa: string): Promise<void> {
-    const result = await client.query(
-      `SELECT 1 FROM mahasiswa WHERE id_mahasiswa = $1 AND deleted_at IS NULL FOR UPDATE`,
+  /** Mengunci baris mahasiswa aktif (FOR UPDATE) dan mengembalikan NIM-nya. */
+  private async lockMahasiswa(client: PoolClient, idMahasiswa: string): Promise<string> {
+    const result = await client.query<{ nim: string }>(
+      `SELECT nim FROM mahasiswa WHERE id_mahasiswa = $1 AND deleted_at IS NULL FOR UPDATE`,
       [idMahasiswa],
     );
     if (!result.rowCount) {
       throw new NotFoundException({ kode: 'AKUN_TIDAK_DITEMUKAN', pesan: 'Akun tidak ditemukan' });
     }
+    return result.rows[0].nim;
   }
 
   private encryptPhone(idKontak: string, phone: string): Buffer {

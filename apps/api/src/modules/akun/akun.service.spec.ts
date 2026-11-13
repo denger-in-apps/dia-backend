@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { Pool } from 'pg';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { AkademikService } from '../akademik/akademik.service';
 import { AkunService, MAKS_KONTAK_DARURAT } from './akun.service';
 
 describe('AkunService', () => {
@@ -11,6 +12,7 @@ describe('AkunService', () => {
   let pool: { query: jest.Mock; connect: jest.Mock };
   let client: { query: jest.Mock; release: jest.Mock };
   let audit: { catat: jest.Mock };
+  let akademik: { hapusCache: jest.Mock };
   let service: AkunService;
 
   beforeAll(() => {
@@ -23,7 +25,10 @@ describe('AkunService', () => {
     client = { query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }), release: jest.fn() };
     pool = { query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }), connect: jest.fn().mockResolvedValue(client) };
     audit = { catat: jest.fn().mockResolvedValue(undefined) };
-    service = new AkunService(pool as unknown as Pool, encryption, audit as unknown as AuditService);
+    akademik = { hapusCache: jest.fn().mockResolvedValue(true) };
+    service = new AkunService(
+      pool as unknown as Pool, encryption, audit as unknown as AuditService, akademik as unknown as AkademikService,
+    );
   });
 
   const sqlCalls = (mock: jest.Mock) => mock.mock.calls.map(([sql]) => String(sql));
@@ -115,18 +120,20 @@ describe('AkunService', () => {
 
   it('refuses account deletion while an SOS is still active', async () => {
     client.query.mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM mahasiswa') && sql.includes('FOR UPDATE')) return { rows: [{}], rowCount: 1 };
+      if (sql.includes('FROM mahasiswa') && sql.includes('FOR UPDATE')) return { rows: [{ nim: '1302210001' }], rowCount: 1 };
       if (sql.includes('FROM log_sos')) return { rows: [{}], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     });
     await expect(service.hapusAkun(userId, {})).rejects.toBeInstanceOf(ConflictException);
     expect(sqlCalls(client.query).some((sql) => sql.includes('deleted_at = now()'))).toBe(false);
     expect(client.query).toHaveBeenCalledWith('ROLLBACK');
+    // Rollback: cache akademik akun yang masih ada tidak boleh dihapus.
+    expect(akademik.hapusCache).not.toHaveBeenCalled();
   });
 
   it('anonymizes the account, removes personal data, revokes sessions and audits atomically', async () => {
     client.query.mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM mahasiswa') && sql.includes('FOR UPDATE')) return { rows: [{}], rowCount: 1 };
+      if (sql.includes('FROM mahasiswa') && sql.includes('FOR UPDATE')) return { rows: [{ nim: '1302210001' }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     });
 
@@ -159,7 +166,35 @@ describe('AkunService', () => {
     expect(client.query).toHaveBeenLastCalledWith('COMMIT');
   });
 
+  it('clears the akademik:{nim} cache using the original NIM only after COMMIT', async () => {
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM mahasiswa') && sql.includes('FOR UPDATE')) return { rows: [{ nim: '1302210001' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+
+    await service.hapusAkun(userId, {});
+
+    expect(akademik.hapusCache).toHaveBeenCalledTimes(1);
+    expect(akademik.hapusCache).toHaveBeenCalledWith('1302210001');
+    const commitOrder = client.query.mock.invocationCallOrder[
+      client.query.mock.calls.findIndex(([sql]) => sql === 'COMMIT')
+    ];
+    expect(akademik.hapusCache.mock.invocationCallOrder[0]).toBeGreaterThan(commitOrder);
+  });
+
+  it('still succeeds when the cache cannot be cleared (best-effort)', async () => {
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM mahasiswa') && sql.includes('FOR UPDATE')) return { rows: [{ nim: '1302210001' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    akademik.hapusCache.mockResolvedValue(false);
+
+    await expect(service.hapusAkun(userId, {})).resolves.toBeUndefined();
+    expect(client.query).toHaveBeenCalledWith('COMMIT');
+  });
+
   it('returns 404 when deleting an already deleted account', async () => {
     await expect(service.hapusAkun(userId, {})).rejects.toBeInstanceOf(NotFoundException);
+    expect(akademik.hapusCache).not.toHaveBeenCalled();
   });
 });
