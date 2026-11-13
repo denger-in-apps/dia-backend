@@ -142,7 +142,7 @@ apps/api/src/
 
 ## 4. Konfigurasi & Boot
 
-- Seluruh env divalidasi saat start (Joi/zod). Aplikasi **gagal start** jika `ENCRYPTION_KEY_*`, `JWT_*`, atau `DATABASE_URL` hilang. Jangan ada nilai default untuk rahasia.
+- Seluruh env divalidasi saat start (`common/config/validasi-env.ts`, dipanggil di `main.ts`). Aplikasi **gagal start** dengan daftar lengkap kesalahan bila `DATABASE_URL`, `JWT_*`, `ENCRYPTION_*` hilang, URL tidak valid (produksi wajib HTTPS + `CORS_ORIGINS`/`FRONTEND_LOGIN_*`), OIDC diisi sebagian, atau angka konfigurasi (booking, sesi, SOS, pengingat, refresh token) di luar rentang. Jangan ada nilai default untuk rahasia.
 - Konfigurasi yang bisa diubah admin saat runtime (durasi eskalasi, penerima) dibaca dari **DB** (`konfigurasi_sos`), bukan env; env hanya nilai awal.
 - `/health/live` (proses hidup) dan `/health/ready` (Postgres + Redis terjangkau) — dipakai load balancer dan smoke test.
 
