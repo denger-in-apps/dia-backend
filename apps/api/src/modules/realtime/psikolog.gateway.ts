@@ -44,6 +44,16 @@ export function allowedOrigins(): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Opsi `cors` hanya mengatur header untuk browser (polling) dan tidak berlaku untuk WebSocket,
+ * sehingga handshake dari origin asing tetap diterima. `allowRequest` menolaknya di level
+ * engine untuk semua transport. Klien tanpa header Origin (non-browser) tetap diizinkan,
+ * sama dengan perilaku CORS HTTP; autentikasi token tetap wajib.
+ */
+export function originDiizinkan(origin: string | undefined): boolean {
+  return !origin || allowedOrigins().includes(origin);
+}
+
 /** Token dari `auth.token` handshake (disarankan) atau header Authorization. Query string tidak diterima agar token tidak masuk log. */
 export function tokenDariHandshake(socket: Socket): string | null {
   const authToken = (socket.handshake.auth as { token?: unknown } | undefined)?.token;
@@ -61,9 +71,11 @@ export function tokenDariHandshake(socket: Socket): string | null {
  */
 @WebSocketGateway({
   namespace: NAMESPACE_PSIKOLOG,
+  allowRequest: (req: { headers: { origin?: string } }, callback: (err: string | null | undefined, success: boolean) => void) =>
+    callback(null, originDiizinkan(req.headers.origin)),
   cors: {
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) =>
-      callback(null, !origin || allowedOrigins().includes(origin)),
+      callback(null, originDiizinkan(origin)),
     credentials: true,
   },
 })
