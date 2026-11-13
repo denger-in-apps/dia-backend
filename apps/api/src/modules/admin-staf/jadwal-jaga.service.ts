@@ -43,6 +43,12 @@ function menit(jam: string): number {
   return h * 60 + m;
 }
 
+/** Tanggal kalender (YYYY-MM-DD) pada zona waktu tertentu. */
+export function tanggalHariIni(zona: string, sekarang: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: zona, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(sekarang);
+}
+
 function validTanggal(tanggal: string): boolean {
   const date = new Date(`${tanggal}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === tanggal;
@@ -163,7 +169,9 @@ export class JadwalJagaService {
   }
 
   private rentang(dari?: string, sampai?: string): { dari: string; sampai: string } {
-    const today = new Date().toISOString().slice(0, 10);
+    // "Hari ini" menurut zona jadwal (default Asia/Jakarta), bukan UTC: pukul 00:00–06:59 WIB
+    // tanggal UTC masih hari sebelumnya sehingga daftar default akan mulai dari kemarin.
+    const today = tanggalHariIni(zonaWaktuJadwal());
     const start = dari ?? today;
     const end = sampai ?? new Date(Date.parse(`${start}T00:00:00Z`) + DEFAULT_RENTANG_HARI * 86_400_000).toISOString().slice(0, 10);
     if (!validTanggal(start) || !validTanggal(end)) {

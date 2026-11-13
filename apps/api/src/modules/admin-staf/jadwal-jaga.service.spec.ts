@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { AuditService } from '../../common/audit/audit.service';
-import { JadwalJagaService } from './jadwal-jaga.service';
+import { JadwalJagaService, tanggalHariIni } from './jadwal-jaga.service';
 import { StatusJagaSync } from './status-jaga.sync';
 
 describe('JadwalJagaService', () => {
@@ -117,5 +117,17 @@ describe('StatusJagaSync', () => {
 
     pool.query.mockRejectedValue(new Error('db down'));
     await expect(sync.sinkron()).resolves.toBe(0);
+  });
+});
+
+describe('tanggalHariIni (SCRUM-237, zona jadwal Asia/Jakarta)', () => {
+  it('memakai tanggal WIB, bukan UTC, pada dini hari', () => {
+    // 2026-11-13 18:30 UTC = 2026-11-14 01:30 WIB
+    expect(tanggalHariIni('Asia/Jakarta', new Date('2026-11-13T18:30:00Z'))).toBe('2026-11-14');
+    expect(tanggalHariIni('Asia/Jakarta', new Date('2026-11-13T16:59:00Z'))).toBe('2026-11-13');
+  });
+
+  it('menghasilkan format YYYY-MM-DD untuk zona lain', () => {
+    expect(tanggalHariIni('UTC', new Date('2026-01-05T23:00:00Z'))).toBe('2026-01-05');
   });
 });
