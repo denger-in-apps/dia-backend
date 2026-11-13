@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException, UnprocessableEntityException } fr
 import { Pool } from 'pg';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { PsikologGateway } from '../realtime/psikolog.gateway';
+import { PengingatService } from '../notifikasi/pengingat.service';
 import { SesiGateway } from '../sesi/sesi.gateway';
 import { BookingService } from './booking.service';
 
@@ -26,6 +27,7 @@ describe('BookingService', () => {
   let encryption: { encrypt: jest.Mock; decrypt: jest.Mock };
   let gateway: { kirimKePsikolog: jest.Mock };
   let ruangSesi: { siarkanStatus: jest.Mock };
+  let pengingat: { jadwalkan: jest.Mock };
   let slotSahResult: unknown[];
   let alternatifRows: unknown[];
   let jumlahAktif: number;
@@ -59,11 +61,13 @@ describe('BookingService', () => {
     };
     gateway = { kirimKePsikolog: jest.fn() };
     ruangSesi = { siarkanStatus: jest.fn() };
+    pengingat = { jadwalkan: jest.fn() };
     service = new BookingService(
       pool as unknown as Pool,
       encryption as unknown as EncryptionService,
       gateway as unknown as PsikologGateway,
       ruangSesi as unknown as SesiGateway,
+      pengingat as unknown as PengingatService,
     );
   });
 
@@ -87,6 +91,8 @@ describe('BookingService', () => {
       id_sesi: idSesi, keluhan_awal: dto.keluhan_awal, psikolog: { id: idPsi, nama: 'Psikolog A' },
     }));
     expect(hasil).not.toHaveProperty('keluhan_awal_enc');
+    // PBI-14: pengingat dijadwalkan di transaksi yang sama dengan booking.
+    expect(pengingat.jadwalkan).toHaveBeenCalledWith(client, expect.objectContaining({ id_sesi: idSesi }));
   });
 
   it('rejects a time that is not one of the psychologist slots without touching the DB transaction', async () => {

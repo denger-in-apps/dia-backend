@@ -2,6 +2,7 @@ import { ConflictException, UnprocessableEntityException } from '@nestjs/common'
 import { Pool } from 'pg';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { PsikologGateway } from '../realtime/psikolog.gateway';
+import { PengingatService } from '../notifikasi/pengingat.service';
 import { SesiGateway } from '../sesi/sesi.gateway';
 import { BookingService } from './booking.service';
 
@@ -18,6 +19,7 @@ describe('BookingService ubah jadwal & batal', () => {
   let client: { query: jest.Mock; release: jest.Mock };
   let gateway: { kirimKePsikolog: jest.Mock };
   let ruangSesi: { siarkanStatus: jest.Mock };
+  let pengingat: { jadwalkan: jest.Mock };
   let slotSah: unknown[];
   let service: BookingService;
 
@@ -48,11 +50,13 @@ describe('BookingService ubah jadwal & batal', () => {
     };
     gateway = { kirimKePsikolog: jest.fn() };
     ruangSesi = { siarkanStatus: jest.fn() };
+    pengingat = { jadwalkan: jest.fn() };
     service = new BookingService(
       pool as unknown as Pool,
       { encrypt: jest.fn(), decrypt: jest.fn() } as unknown as EncryptionService,
       gateway as unknown as PsikologGateway,
       ruangSesi as unknown as SesiGateway,
+      pengingat as unknown as PengingatService,
     );
   });
 
@@ -70,6 +74,7 @@ describe('BookingService ubah jadwal & batal', () => {
       expect(JSON.parse(notif[1][2]).waktu_mulai_lama).toBe(lama);
       expect(gateway.kirimKePsikolog).toHaveBeenCalledWith(
         [idPsi], 'booking:diubah', expect.objectContaining({ waktu_mulai_lama: lama }));
+      expect(pengingat.jadwalkan).toHaveBeenCalledWith(client, expect.objectContaining({ id_sesi: idSesi }));
     });
 
     it('is a no-op when nothing changes', async () => {
@@ -132,6 +137,7 @@ describe('BookingService ubah jadwal & batal', () => {
       expect(gateway.kirimKePsikolog).toHaveBeenCalledWith([idPsi], 'booking:dibatalkan', expect.any(Object));
       expect(ruangSesi.siarkanStatus).toHaveBeenCalledWith(idSesi, { id_sesi: idSesi, status_sesi: 'DIBATALKAN' });
       expect(hasil.status_sesi).toBe('DIBATALKAN');
+      expect(pengingat.jadwalkan).toHaveBeenCalledWith(client, expect.objectContaining({ status_sesi: 'DIBATALKAN' }));
     });
 
     it('uses a default reason', async () => {

@@ -381,6 +381,8 @@ Slot alternatif (use case 5.b): kembalikan 3–5 slot terdekat psikolog yang sam
 
 ### 9.4 Pengingat Sesi (PBI-14, FR-MHS-11)
 
+> Implementasi: [PBI-14](PBI-14-pengingat-sesi.md) (worker `@nestjs/schedule` + klaim `SKIP LOCKED`, email via `EmailProvider`).
+
 - Saat booking dibuat/diubah: jadwalkan baris `pengingat_sesi` (mis. H-24 jam dan H-1 jam). Idempotensi dijamin PK `(id_sesi, offset_menit)`.
 - Worker mengirim in-app (`notifikasi`) + email; gagal → retry eksponensial maks 3 kali (use case alt 2.a).
 - Sesi diubah/dibatalkan → hapus/atur ulang pengingat.

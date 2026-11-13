@@ -20,6 +20,7 @@ Panduan acceptance dan smoke test:
 - [PBI-11 jadwal sesi psikolog & ruang sesi E2EE](PBI-11-jadwal-dan-ruang-sesi.md)
 - [PBI-12 perubahan dan pembatalan sesi](PBI-12-ubah-batal-sesi.md)
 - [PBI-13 ringkasan dan riwayat sesi](PBI-13-ringkasan-riwayat-sesi.md)
+- [PBI-14 pengingat sesi konseling](PBI-14-pengingat-sesi.md)
 
 ### Persiapan (PowerShell)
 

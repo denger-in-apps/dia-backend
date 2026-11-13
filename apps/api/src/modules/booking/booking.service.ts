@@ -22,6 +22,7 @@ import { zonaWaktuJadwal } from '../../common/domain/zona-waktu';
 import { PsikologGateway } from '../realtime/psikolog.gateway';
 import { EVENT } from '../realtime/realtime.constants';
 import { bookingConfig, JUMLAH_ALTERNATIF, RENTANG_ALTERNATIF_JAM } from './booking.constants';
+import { PengingatService } from '../notifikasi/pengingat.service';
 import { SesiGateway } from '../sesi/sesi.gateway';
 import {
   BatalBookingDto,
@@ -85,6 +86,7 @@ export class BookingService {
     private readonly encryption: EncryptionService,
     private readonly gateway: PsikologGateway,
     private readonly ruangSesi: SesiGateway,
+    private readonly pengingat: PengingatService,
   ) {}
 
   /** Psikolog yang dapat dibooking (akun AKTIF). */
@@ -232,11 +234,11 @@ export class BookingService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Hook setelah sesi dibuat/diubah/dibatalkan, di dalam transaksi yang sama.
-   * Dipakai pengingat sesi (PBI-14); saat ini tanpa efek.
+   * Setelah sesi dibuat/diubah/dibatalkan, di dalam transaksi yang sama: atur ulang
+   * pengingat (PBI-14) sehingga tidak pernah ada pengingat untuk jadwal lama/sesi batal.
    */
-  protected async setelahJadwalBerubah(_client: PoolClient, _sesi: SesiRow): Promise<void> {
-    return undefined;
+  protected async setelahJadwalBerubah(client: PoolClient, sesi: SesiRow): Promise<void> {
+    await this.pengingat.jadwalkan(client, sesi);
   }
 
   /** Sesi hanya dapat diubah/dibatalkan selama `DIJADWALKAN` dan belum melewati batas waktunya. */
