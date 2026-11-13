@@ -216,6 +216,9 @@ export class AdminPsikologService {
       );
       await this.catat(client, admin, 'AKUN_PSIKOLOG_RESET_PASSWORD', id, ctx);
     });
+    // Password sementara wajib diganti dulu: koneksi realtime yang masih hidup diputus sekarang
+    // (tidak menunggu pemeriksaan ulang berkala).
+    this.gateway.putuskanPsikolog(id);
     return { password_sementara: password };
   }
 

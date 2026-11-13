@@ -122,6 +122,8 @@ describe('AdminPsikologService', () => {
     await expect(argon2.verify(params[1], password_sementara)).resolves.toBe(true);
     expect(call('UPDATE refresh_token')).toBeDefined();
     expect(audit.catat).toHaveBeenCalledWith(expect.objectContaining({ aksi: 'AKUN_PSIKOLOG_RESET_PASSWORD' }), client);
+    // Koneksi realtime dengan sesi lama diputus seketika (password sementara wajib diganti dulu).
+    expect(gateway.putuskanPsikolog).toHaveBeenCalledWith(idPsi);
   });
 
   it('escapes LIKE wildcards in the search term', async () => {
