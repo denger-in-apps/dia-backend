@@ -3,7 +3,14 @@ import { Test } from '@nestjs/testing';
 import request = require('supertest');
 import { configureApp } from '../../app.setup';
 import { authGuardProviders, bearer, TEST_USERS } from '../../testing/auth-test.helper';
-import { KunciE2eeController, RuangSesiController, SesiPsikologController } from './sesi.controller';
+import {
+  ConsentCatatanController,
+  KunciE2eeController,
+  RiwayatPsikologController,
+  RuangSesiController,
+  SesiPsikologController,
+} from './sesi.controller';
+import { RingkasanService } from './ringkasan.service';
 import { RuangSesiService } from './ruang-sesi.service';
 import { SesiGateway } from './sesi.gateway';
 import { SesiPsikologService } from './sesi-psikolog.service';
@@ -13,6 +20,7 @@ describe('Sesi controllers', () => {
   let ruang: Record<string, jest.Mock>;
   let sesi: Record<string, jest.Mock>;
   let gateway: Record<string, jest.Mock>;
+  let ringkasan: Record<string, jest.Mock>;
   const id = '44444444-4444-4444-8444-444444444444';
   const pesanBody = { ciphertext: 'Y2lwaGVydGV4dC1ieXRlcw==', nonce: 'AAAAAAAAAAAAAAAA' };
 
@@ -30,12 +38,22 @@ describe('Sesi controllers', () => {
       ubahStatus: jest.fn().mockResolvedValue({ id_sesi: id, status_sesi: 'SELESAI' }),
     };
     gateway = { siarkanPesan: jest.fn(), siarkanStatus: jest.fn() };
+    ringkasan = {
+      aturConsent: jest.fn().mockResolvedValue({}),
+      simpan: jest.fn().mockResolvedValue({}),
+      baca: jest.fn().mockResolvedValue({}),
+      daftarDampingan: jest.fn().mockResolvedValue([]),
+      riwayatMahasiswa: jest.fn().mockResolvedValue([]),
+    };
     const moduleRef = await Test.createTestingModule({
-      controllers: [KunciE2eeController, RuangSesiController, SesiPsikologController],
+      controllers: [
+        KunciE2eeController, RuangSesiController, SesiPsikologController, RiwayatPsikologController, ConsentCatatanController,
+      ],
       providers: [
         { provide: RuangSesiService, useValue: ruang },
         { provide: SesiPsikologService, useValue: sesi },
         { provide: SesiGateway, useValue: gateway },
+        { provide: RingkasanService, useValue: ringkasan },
         ...authGuardProviders(),
       ],
     }).compile();
@@ -85,5 +103,38 @@ describe('Sesi controllers', () => {
     expect(gateway.siarkanStatus).toHaveBeenCalledWith(id, { id_sesi: id, status_sesi: 'SELESAI' });
     const res = await request(server).get(`/api/v1/psikolog/sesi/${id}`).set('Authorization', bearer('PSIKOLOG')).expect(200);
     expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('lets only students set consent on their own booking', async () => {
+    const server = app.getHttpServer();
+    await request(server).post(`/api/v1/booking/${id}/consent-catatan`).set('Authorization', bearer('PSIKOLOG'))
+      .send({ setuju: true }).expect(403);
+    await request(server).post(`/api/v1/booking/${id}/consent-catatan`).set('Authorization', bearer('MAHASISWA'))
+      .send({ setuju: 'ya' }).expect(400);
+    await request(server).post(`/api/v1/booking/${id}/consent-catatan`).set('Authorization', bearer('MAHASISWA'))
+      .send({ setuju: false }).expect(200);
+    expect(ringkasan.aturConsent).toHaveBeenCalledWith(TEST_USERS.MAHASISWA, id, false, expect.any(Object));
+  });
+
+  it('restricts summaries and history to psychologists, without caching', async () => {
+    const server = app.getHttpServer();
+    await request(server).put(`/api/v1/psikolog/sesi/${id}/ringkasan`).set('Authorization', bearer('MAHASISWA'))
+      .send({ ringkasan: 'x' }).expect(403);
+    await request(server).put(`/api/v1/psikolog/sesi/${id}/ringkasan`).set('Authorization', bearer('PSIKOLOG'))
+      .send({ ringkasan: '   ' }).expect(400);
+    const put = await request(server).put(`/api/v1/psikolog/sesi/${id}/ringkasan`).set('Authorization', bearer('PSIKOLOG'))
+      .send({ ringkasan: ' Mahasiswa membaik\nLanjut CBT ' }).expect(200);
+    expect(put.headers['cache-control']).toBe('no-store');
+    expect(ringkasan.simpan).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, id, 'Mahasiswa membaik\nLanjut CBT', expect.any(Object));
+
+    await request(server).get('/api/v1/psikolog/riwayat').set('Authorization', bearer('DOSEN_ADMIN')).expect(403);
+    await request(server).get('/api/v1/psikolog/riwayat').set('Authorization', bearer('PSIKOLOG')).expect(200);
+    expect(ringkasan.daftarDampingan).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG);
+    const mhsId = TEST_USERS.MAHASISWA.id;
+    const res = await request(server).get(`/api/v1/psikolog/riwayat?mahasiswa=${mhsId}`)
+      .set('Authorization', bearer('PSIKOLOG')).expect(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(ringkasan.riwayatMahasiswa).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, mhsId, expect.any(Object));
+    await request(server).get('/api/v1/psikolog/riwayat?mahasiswa=abc').set('Authorization', bearer('PSIKOLOG')).expect(400);
   });
 });

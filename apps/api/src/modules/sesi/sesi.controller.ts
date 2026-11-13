@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -15,7 +17,17 @@ import { Request, Response } from 'express';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import { Roles } from '../../common/auth/roles.decorator';
 import { AuthenticatedUser, Role } from '../../common/auth/auth.types';
-import { DaftarPesanQuery, DaftarSesiPsikologQuery, KirimPesanDto, SimpanKunciDto, UbahStatusSesiDto } from './sesi.dto';
+import {
+  ConsentCatatanDto,
+  DaftarPesanQuery,
+  DaftarSesiPsikologQuery,
+  KirimPesanDto,
+  RiwayatQuery,
+  SimpanKunciDto,
+  SimpanRingkasanDto,
+  UbahStatusSesiDto,
+} from './sesi.dto';
+import { RingkasanService } from './ringkasan.service';
 import { RuangSesiService } from './ruang-sesi.service';
 import { SesiGateway } from './sesi.gateway';
 import { KonteksPermintaan, SesiPsikologService } from './sesi-psikolog.service';
@@ -88,6 +100,7 @@ export class SesiPsikologController {
   constructor(
     private readonly sesi: SesiPsikologService,
     private readonly gateway: SesiGateway,
+    private readonly ringkasan: RingkasanService,
   ) {}
 
   @Get()
@@ -117,5 +130,68 @@ export class SesiPsikologController {
     const hasil = await this.sesi.ubahStatus(user, id, dto, konteks(request));
     this.gateway.siarkanStatus(id, { id_sesi: hasil.id_sesi, status_sesi: hasil.status_sesi });
     return hasil;
+  }
+
+  /** Tulis/perbarui ringkasan sesi (PBI-13); `403 CONSENT_BELUM_ADA` tanpa persetujuan mahasiswa. */
+  @Put(':id/ringkasan')
+  simpanRingkasan(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Body() dto: SimpanRingkasanDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'no-store');
+    return this.ringkasan.simpan(user, id, dto.ringkasan, konteks(request));
+  }
+
+  @Get(':id/ringkasan')
+  bacaRingkasan(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'no-store');
+    return this.ringkasan.baca(user, id, konteks(request));
+  }
+}
+
+/** Riwayat sesi mahasiswa dampingan (PBI-13, FR-PSI-08). */
+@Controller('psikolog/riwayat')
+@Roles(Role.PSIKOLOG)
+export class RiwayatPsikologController {
+  constructor(private readonly ringkasan: RingkasanService) {}
+
+  /** Tanpa `mahasiswa`: daftar mahasiswa yang pernah ditangani. Dengan `mahasiswa=<id>`: riwayat sesinya. */
+  @Get()
+  riwayat(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: RiwayatQuery,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'no-store');
+    return query.mahasiswa
+      ? this.ringkasan.riwayatMahasiswa(user, query.mahasiswa, konteks(request))
+      : this.ringkasan.daftarDampingan(user);
+  }
+}
+
+/** Consent pencatatan ringkasan oleh mahasiswa (02-backend.md §8.4: `POST /booking/:id/consent-catatan`). */
+@Controller('booking')
+@Roles(Role.MAHASISWA)
+export class ConsentCatatanController {
+  constructor(private readonly ringkasan: RingkasanService) {}
+
+  @Post(':id/consent-catatan')
+  @HttpCode(HttpStatus.OK)
+  aturConsent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Body() dto: ConsentCatatanDto,
+    @Req() request: Request,
+  ) {
+    return this.ringkasan.aturConsent(user, id, dto.setuju, konteks(request));
   }
 }

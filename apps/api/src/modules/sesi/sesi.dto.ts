@@ -1,6 +1,19 @@
-import { Type } from 'class-transformer';
-import { IsBase64, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
-import { WAKTU_ISO } from '../booking/booking.dto';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBase64,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { TEKS_BEBAS, WAKTU_ISO } from '../booking/booking.dto';
 
 /** Batas ukuran (karakter base64) agar satu pesan/kunci tidak membebani DB atau socket. */
 export const MAKS_CIPHERTEXT_B64 = 22_000; // ≈ 16 KiB biner
@@ -65,8 +78,23 @@ export class UbahStatusSesiDto {
   status!: (typeof STATUS_UBAH_PSIKOLOG)[number];
 }
 
-/** Payload event `sesi:gabung` / `rtc:sinyal` di namespace `/sesi`. */
-export class GabungSesiPayload {
+export class ConsentCatatanDto {
+  /** `true` = setuju psikolog mencatat ringkasan; `false` = tarik consent (ringkasan dihapus). */
+  @IsBoolean()
+  setuju!: boolean;
+}
+
+export class SimpanRingkasanDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Length(1, 5000)
+  @Matches(TEKS_BEBAS, { message: 'ringkasan mengandung karakter tidak valid' })
+  ringkasan!: string;
+}
+
+export class RiwayatQuery {
+  /** Kosong = daftar mahasiswa dampingan; diisi = riwayat sesi mahasiswa tersebut. */
+  @IsOptional()
   @IsUUID()
-  id_sesi!: string;
+  mahasiswa?: string;
 }
