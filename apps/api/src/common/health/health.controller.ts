@@ -1,6 +1,7 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../auth/public.decorator';
 import { AUTH_REDIS } from '../auth/sso-state.lifecycle';
 import { DATABASE_POOL } from '../../database/database.module';
@@ -10,7 +11,9 @@ const CHECK_TIMEOUT_MS = 2000;
 
 type CheckStatus = 'ok' | 'error';
 
+/** Probe load balancer/orchestrator tidak boleh terkena rate limit. */
 @Controller()
+@SkipThrottle()
 export class HealthController {
   constructor(
     @Inject(DATABASE_POOL) private readonly pool: Pool,

@@ -2,7 +2,10 @@ import { readFileSync } from 'fs';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import Redis from 'ioredis';
+import { RedisThrottlerStorage } from '../redis/redis-throttler.storage';
+import { AUTH_REDIS } from './sso-state.lifecycle';
 import { CryptoModule } from '../crypto/crypto.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -30,7 +33,16 @@ function requiredFile(name: string): string {
     RedisModule,
     AkademikModule,
     AuditModule,
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    // Rate limit global 100 req/menit/IP (02-backend.md §12), tersimpan di Redis agar
+    // berlaku lintas instance; endpoint sensitif menimpa lewat @Throttle().
+    ThrottlerModule.forRootAsync({
+      imports: [RedisModule],
+      inject: [AUTH_REDIS],
+      useFactory: (redis: Redis) => ({
+        throttlers: [{ ttl: 60_000, limit: 100 }],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     JwtModule.registerAsync({
       useFactory: () => ({
         privateKey: requiredFile('JWT_PRIVATE_KEY_PATH'),
@@ -70,6 +82,8 @@ function requiredFile(name: string): string {
     },
     JwtAuthGuard,
     RolesGuard,
+    // Urutan penting: rate limit sebelum verifikasi JWT (yang menyentuh DB).
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],

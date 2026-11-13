@@ -11,9 +11,8 @@ import {
   Req,
   Res,
   ServiceUnavailableException,
-  UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SsoProviderDeniedException, SsoStrategy, SSO_STRATEGY } from './sso-strategy';
@@ -41,7 +40,6 @@ export class AuthController {
 
   @Get('sso/login')
   @Public()
-  @UseGuards(ThrottlerGuard)
   // Longgar karena banyak mahasiswa berbagi satu IP NAT kampus; kredensial divalidasi IdP.
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   async ssoLogin(@Res() response: Response): Promise<void> {
@@ -82,7 +80,6 @@ export class AuthController {
 
   @Post('staff/login')
   @Public()
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async staffLogin(
@@ -151,7 +148,6 @@ export class AuthController {
   @Post('staff/password')
   @Roles(Role.PSIKOLOG, Role.DOSEN_ADMIN)
   @IzinkanPasswordSementara()
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.NO_CONTENT)
   async gantiPassword(
@@ -166,7 +162,6 @@ export class AuthController {
   /** Langkah 1 pendaftaran MFA: secret + URI otpauth (QR) dari `mfa_setup_token`. */
   @Post('staff/mfa/mulai')
   @Public()
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async mulaiMfa(@Body() dto: MulaiMfaDto, @Res({ passthrough: true }) response: Response) {
@@ -177,7 +172,6 @@ export class AuthController {
   /** Langkah 2: verifikasi OTP pertama, simpan secret, terbitkan sesi. */
   @Post('staff/mfa/aktifkan')
   @Public()
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async aktifkanMfa(@Body() dto: AktifkanMfaDto, @Req() request: Request, @Res() response: Response): Promise<void> {

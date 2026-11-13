@@ -439,7 +439,7 @@ Log **tidak** berisi isi data — hanya siapa, apa, kapan, dari mana, hasil.
 
 | Endpoint | Batas awal (usulan) |
 |----------|--------------------|
-| Global | 100 req/menit/IP |
+| Global | 100 req/menit/IP — **aktif**: `ThrottlerGuard` global (sebelum JWT guard), storage Redis lintas instance, fallback memori lokal bila Redis mati; health check dikecualikan |
 | `/auth/*` | 10 req/menit/IP + lockout |
 | `POST /genta/sos` | Dedupe: SOS aktif < 10 menit dikembalikan, bukan dibuat ulang; maks 5/jam/akun |
 | `POST /curhat` | 10/jam/akun |

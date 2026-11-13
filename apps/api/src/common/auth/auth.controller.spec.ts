@@ -1,7 +1,7 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import cookieParser = require('cookie-parser');
 import { INestApplication } from '@nestjs/common';
 import request = require('supertest');
@@ -101,6 +101,7 @@ describe('AuthController', () => {
         { provide: AkademikService, useValue: { wajibAktif: jest.fn() } },
         { provide: MfaService, useValue: mfa },
         AccessTokenService,
+        { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: RolesGuard },
       ],
