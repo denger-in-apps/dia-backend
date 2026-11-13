@@ -14,6 +14,7 @@ describe('EskalasiTindakanService', () => {
   let sms: { kirim: jest.Mock };
   let config: KonfigurasiSos;
   let riwayatKontak: number;
+  let sudahTerkirim: string[];
   let service: EskalasiTindakanService;
 
   const sos = (overrides: Partial<SosTereskalasi> = {}): SosTereskalasi => ({
@@ -35,6 +36,7 @@ describe('EskalasiTindakanService', () => {
   beforeEach(() => {
     config = { ...KONFIGURASI_DEFAULT };
     riwayatKontak = 0;
+    sudahTerkirim = [];
     pool = {
       query: jest.fn(async (sql: string) => {
         if (sql.includes('FROM mahasiswa')) return { rows: [{ nama: 'Budi' }] };
@@ -45,6 +47,7 @@ describe('EskalasiTindakanService', () => {
           return { rows: [{ id: 'kd1', no_telepon_enc: encryption.encrypt('082222222222', 'kontak_darurat:no_telepon_enc:kd1') }] };
         }
         if (sql.includes('count(DISTINCT e.id_sos)')) return { rows: [{ jumlah: riwayatKontak }] };
+        if (sql.includes('SELECT penerima_ref')) return { rows: sudahTerkirim.map((penerima_ref) => ({ penerima_ref })) };
         return { rows: [], rowCount: 1 };
       }),
     };
@@ -157,5 +160,33 @@ describe('EskalasiTindakanService', () => {
   it('never throws even when the database is unavailable', async () => {
     pool.query.mockRejectedValue(new Error('db down'));
     await expect(service.jalankan(sos())).resolves.toMatchObject({ sms_terkirim: 0 });
+  });
+
+  describe('retry safety (SCRUM-235)', () => {
+    it('records a stable recipient reference and reports completion', async () => {
+      const hasil = await service.jalankan(sos());
+      expect(hasil.selesai).toBe(true);
+      const refs = logInserts().map(([, params]) => params[7]).sort();
+      expect(refs).toEqual(['KONTAK_DARURAT:kd1', 'PENERIMA_ESKALASI:pe1']);
+    });
+
+    it('skips recipients already sent on a previous attempt', async () => {
+      sudahTerkirim = ['PENERIMA_ESKALASI:pe1'];
+      const hasil = await service.jalankan(sos());
+      expect(nomorTerkirim()).toEqual(['082222222222']);
+      expect(hasil.sms_terkirim).toBe(1);
+    });
+
+    it('logs the hotline info only once per SOS', async () => {
+      await service.jalankan(sos());
+      const hotline = pool.query.mock.calls.find(([sql]) => String(sql).includes("'INFO_HOTLINE', 'HOTLINE'"))!;
+      expect(hotline[0]).toContain('WHERE NOT EXISTS');
+    });
+
+    it('reports an incomplete run on unexpected errors so it is retried', async () => {
+      pool.query.mockRejectedValue(new Error('db down'));
+      const hasil = await service.jalankan(sos());
+      expect(hasil.selesai).toBe(false);
+    });
   });
 });

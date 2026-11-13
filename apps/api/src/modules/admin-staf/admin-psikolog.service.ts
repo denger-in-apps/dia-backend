@@ -147,7 +147,10 @@ export class AdminPsikologService {
       }>(
         `UPDATE log_sos
          SET status_penanganan = 'ESKALASI', id_psikolog = NULL, waktu_diambil = NULL,
-             waktu_eskalasi = COALESCE(waktu_eskalasi, now())
+             waktu_eskalasi = COALESCE(waktu_eskalasi, now()),
+             -- Kasus ini sudah sempat ditangani: tidak memicu SMS "belum direspons" ke kampus/keluarga.
+             -- Semua psikolog aktif dikabari lewat sos:eskalasi di bawah (keputusan PBI-09 §4).
+             tindakan_eskalasi_at = COALESCE(tindakan_eskalasi_at, now())
          WHERE id_psikolog = $1 AND status_penanganan IN ('DIAMBIL', 'DITANGANI')
          RETURNING id_sos::text AS id_sos, prioritas, situasi, lokasi_izin, perlu_verifikasi, waktu_kejadian`,
         [id],

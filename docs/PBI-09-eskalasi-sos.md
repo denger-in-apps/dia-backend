@@ -40,6 +40,7 @@ timer habis ──► UPDATE log_sos SET status='ESKALASI' WHERE id_sos=$1 AND s
 | Eskalasi ganda (timer + sweeper + multi-instance) | Eskalasi adalah UPDATE bersyarat `status = 'BARU'` — hanya satu pemanggil yang berhasil |
 | Job gagal (DB sementara down) | Diulang 5× dengan backoff eksponensial; sweeper tetap menjadi cadangan |
 | Event error Redis | Listener dipasang (proses tidak jatuh); peringatan berulang dibatasi 1×/menit |
+| Proses mati / DB putus **setelah** status `ESKALASI` tetapi sebelum SMS terkirim | Pola outbox: `UPDATE` eskalasi sekaligus mengklaim tindakan (`tindakan_klaim_at`); `tindakan_eskalasi_at` diisi setelah SMS/hotline selesai. Sweeper mengklaim ulang tindakan yang belum selesai setelah 120 dtk (`FOR UPDATE SKIP LOCKED`), maks. 5 percobaan, **selama SOS masih `ESKALASI`** (sudah diambil psikolog → tidak diulang). Habis percobaan → log error untuk penanganan manual |
 
 `ESKALASI_WORKER_AKTIF=false` mematikan worker pada instance tertentu (sweeper tetap aktif).
 
@@ -77,8 +78,10 @@ melalui konfigurasi admin (SCRUM-236) atau langsung di tabel `konfigurasi_sos`.
 
 ## 2. SMS gateway & hotline (SCRUM-235)
 
-Dijalankan sekali oleh pemenang eskalasi atomik §1, sehingga retry job atau sweeper
-tidak mengirim SMS ganda.
+Dijalankan oleh pemenang eskalasi atomik §1, lalu diulang sweeper hanya bila belum selesai
+(lihat tabel keandalan §1). Retry aman: penerima yang sudah `TERKIRIM` untuk SOS tersebut
+dilewati berdasarkan `log_eskalasi.penerima_ref` (`<jenis>:<id>`), idempotency key provider
+tetap sama, dan baris `INFO_HOTLINE` hanya dicatat sekali.
 
 ### Hotline Healing119.id — 119 ext. 8
 
@@ -136,7 +139,10 @@ SMS **tidak** memuat situasi, koordinat, atau isi keluhan.
 - Nomor penerima kampus didekripsi dengan AAD `penerima_eskalasi:no_telepon_enc:<id>`,
   kontak darurat dengan `kontak_darurat:no_telepon_enc:<id_kontak>`.
 
-Migrasi `1793700400000-EskalasiSms` menambah `log_eskalasi.jenis_penerima`.
+Migrasi `1793700400000-EskalasiSms` menambah `log_eskalasi.jenis_penerima`; migrasi
+`1793800300000-EskalasiTindakanTahanGagal` menambah kolom outbox `log_sos.tindakan_eskalasi_at`,
+`tindakan_klaim_at`, `tindakan_percobaan` dan `log_eskalasi.penerima_ref` (eskalasi lama
+ditandai sudah ditindak agar tidak memicu SMS susulan setelah deploy).
 
 ### Cara cek
 
@@ -246,7 +252,9 @@ juga untuk dosen admin; semua sesi dicabut setelah berhasil, maks. 5 percobaan/m
 1. kasus SOS yang sedang dipegang (`DIAMBIL`/`DITANGANI`) dikembalikan ke antrean sebagai
    **`ESKALASI`** (tanpa penangan) dan setelah commit disiarkan `sos:diperbarui` + `sos:eskalasi`
    ke semua psikolog aktif (`sumber: PENANGAN_NONAKTIF`), sehingga tidak ada mahasiswa yang
-   tertinggal tanpa penangan;
+   tertinggal tanpa penangan. **Tidak** ada SMS eskalasi untuk kasus ini (ditandai
+   `tindakan_eskalasi_at`): kasusnya sudah sempat ditangani, sehingga SMS "belum direspons"
+   ke kampus/keluarga akan menyesatkan;
 2. jadwal jaga yang sedang berjalan/mendatang dihapus dan `status_jaga = false`;
 3. semua refresh token dicabut; access token langsung ditolak guard (status akun dicek per
    request) dan koneksi Socket.IO psikolog diputus.
@@ -299,7 +307,7 @@ login sampai alur pendaftaran MFA tersedia (lihat PBI-01).
 
 ## Kriteria penerimaan PBI-09
 
-- [x] SOS yang tidak diambil dalam `durasi_eskalasi_detik` (default 3 menit) tereskalasi otomatis, tahan restart dan Redis mati.
+- [x] SOS yang tidak diambil dalam `durasi_eskalasi_detik` (default 3 menit) tereskalasi otomatis, tahan restart dan Redis mati; SMS eskalasi tidak hilang bila proses mati di tengah.
 - [x] SOS tanpa psikolog jaga dapat tereskalasi seketika sesuai konfigurasi.
 - [x] Eskalasi mengirim SMS ke penerima kampus dan kontak darurat (dengan perlindungan anti-penyalahgunaan) serta menandai hotline 119 ext. 8.
 - [x] Dosen admin dapat mengatur durasi, hotline, kebijakan kontak darurat, ambang anti-iseng, dan penerima eskalasi; perubahan diaudit.

@@ -19,7 +19,11 @@ describe('EskalasiService', () => {
   beforeEach(() => {
     pool = { query: jest.fn() };
     notifikasi = { sosDiperbarui: jest.fn(), sosEskalasi: jest.fn().mockResolvedValue(3) };
-    tindakan = { jalankan: jest.fn().mockResolvedValue({ hotline: true, sms_terkirim: 2, sms_gagal: 0, kontak_darurat_dilewati: null }) };
+    tindakan = {
+      jalankan: jest.fn().mockResolvedValue({
+        selesai: true, hotline: true, sms_terkirim: 2, sms_gagal: 0, kontak_darurat_dilewati: null,
+      }),
+    };
     service = new EskalasiService(
       pool as unknown as Pool, notifikasi as unknown as SosNotifikasiService,
       tindakan as unknown as EskalasiTindakanService,
@@ -38,6 +42,7 @@ describe('EskalasiService', () => {
 
     const [sql, params] = pool.query.mock.calls[0];
     expect(sql).toContain("SET status_penanganan = 'ESKALASI', waktu_eskalasi = now()");
+    expect(sql).toContain('tindakan_klaim_at = now(), tindakan_percobaan = 1');
     expect(sql).toContain("WHERE id_sos = $1 AND status_penanganan = 'BARU'");
     expect(params).toEqual([idSos]);
     expect(notifikasi.sosDiperbarui).toHaveBeenCalledWith({ id_sos: idSos, status_penanganan: 'ESKALASI', id_psikolog: null });
@@ -46,6 +51,29 @@ describe('EskalasiService', () => {
     }));
     expect(JSON.stringify(notifikasi.sosEskalasi.mock.calls[0][0])).not.toContain('"id_mahasiswa"');
     expect(tindakan.jalankan).toHaveBeenCalledWith(expect.objectContaining({ id_sos: idSos, id_mahasiswa: 'm' }));
+    // Outbox: tindakan selesai baru ditandai SETELAH SMS/hotline dijalankan.
+    expect(pool.query).toHaveBeenLastCalledWith('UPDATE log_sos SET tindakan_eskalasi_at = now() WHERE id_sos = $1', [idSos]);
+  });
+
+  it('leaves the action pending for the sweeper when it did not complete (crash-safe SMS)', async () => {
+    pool.query.mockResolvedValue({ rows: [{ id_sos: idSos, waktu_kejadian: new Date(), waktu_eskalasi: new Date() }] });
+    tindakan.jalankan.mockResolvedValue({ selesai: false, hotline: false, sms_terkirim: 0, sms_gagal: 0, kontak_darurat_dilewati: null });
+    await expect(service.eskalasi(idSos, 'TIMER')).resolves.toBe(true);
+    expect(pool.query.mock.calls.some(([sql]) => String(sql).includes('tindakan_eskalasi_at = now()'))).toBe(false);
+  });
+
+  it('re-claims pending escalation actions atomically, only while still ESKALASI, with a retry cap', async () => {
+    pool.query.mockResolvedValueOnce({
+      rows: [{ id_sos: idSos, id_mahasiswa: 'm', waktu_kejadian: new Date(), waktu_eskalasi: new Date(), tindakan_percobaan: 2 }],
+    }).mockResolvedValue({ rows: [] });
+    await expect(service.ulangiTindakanTertunda()).resolves.toBe(1);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain("status_penanganan = 'ESKALASI' AND tindakan_eskalasi_at IS NULL");
+    expect(sql).toContain('FOR UPDATE SKIP LOCKED');
+    expect(sql).toContain('tindakan_percobaan = tindakan_percobaan + 1');
+    expect(params).toEqual([5, 120]);
+    expect(tindakan.jalankan).toHaveBeenCalledWith(expect.not.objectContaining({ tindakan_percobaan: expect.anything() }));
+    expect(notifikasi.sosEskalasi).not.toHaveBeenCalled();
   });
 
   it('still escalates SOS flagged perlu_verifikasi (suspicion never blocks help)', async () => {
@@ -138,7 +166,10 @@ describe('EskalasiSchedulerService', () => {
 describe('EskalasiSweeper', () => {
   it('escalates overdue BARU SOS from the database when the Redis timer is missing', async () => {
     const pool = { query: jest.fn().mockResolvedValue({ rows: [{ id_sos: 'a' }, { id_sos: 'b' }] }) };
-    const eskalasi = { eskalasi: jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false) };
+    const eskalasi = {
+      eskalasi: jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
+      ulangiTindakanTertunda: jest.fn().mockResolvedValue(0),
+    };
     const sweeper = new EskalasiSweeper(pool as unknown as Pool, eskalasi as unknown as EskalasiService);
 
     await expect(sweeper.sapu()).resolves.toBe(1);
@@ -149,12 +180,15 @@ describe('EskalasiSweeper', () => {
     expect(params).toEqual([15]);
     expect(eskalasi.eskalasi).toHaveBeenNthCalledWith(1, 'a', 'SAPU');
     expect(eskalasi.eskalasi).toHaveBeenNthCalledWith(2, 'b', 'SAPU');
+    expect(eskalasi.ulangiTindakanTertunda).toHaveBeenCalledTimes(1);
   });
 
   it('never throws and does not overlap runs', async () => {
     let release!: () => void;
     const pool = { query: jest.fn(() => new Promise((resolve) => { release = () => resolve({ rows: [] }); })) };
-    const sweeper = new EskalasiSweeper(pool as unknown as Pool, { eskalasi: jest.fn() } as never);
+    const sweeper = new EskalasiSweeper(
+      pool as unknown as Pool, { eskalasi: jest.fn(), ulangiTindakanTertunda: jest.fn() } as never,
+    );
     const first = sweeper.sapu();
     await expect(sweeper.sapu()).resolves.toBe(0);
     release();

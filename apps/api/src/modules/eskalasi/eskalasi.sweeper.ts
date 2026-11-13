@@ -8,7 +8,8 @@ import { EskalasiService } from './eskalasi.service';
 /**
  * Jaring pengaman timer eskalasi: setiap 30 detik mencari SOS `BARU` yang sudah melewati
  * durasi eskalasi (+ toleransi) — mis. karena Redis mati saat SOS dibuat atau job hilang —
- * lalu mengeskalasinya. Aman berjalan di semua instance karena eskalasi bersifat atomik.
+ * lalu mengeskalasinya, serta mengulang tindakan eskalasi (SMS/hotline) yang belum selesai.
+ * Aman berjalan di semua instance karena eskalasi & klaim tindakan bersifat atomik.
  */
 @Injectable()
 export class EskalasiSweeper {
@@ -41,6 +42,8 @@ export class EskalasiSweeper {
       for (const { id_sos } of result.rows) {
         if (await this.eskalasi.eskalasi(id_sos, 'SAPU')) jumlah++;
       }
+      // Tindakan (SMS/hotline) yang tertunda karena crash/DB putus diklaim ulang (SCRUM-235).
+      await this.eskalasi.ulangiTindakanTertunda();
       return jumlah;
     } catch (error) {
       this.logger.error(`Sweeper eskalasi gagal: ${(error as Error).message}`);

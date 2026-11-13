@@ -16,6 +16,8 @@ interface TargetSms {
 }
 
 export interface HasilTindakan {
+  /** `false` bila tindakan terhenti karena error tak terduga (mis. DB putus) dan perlu diulang. */
+  selesai: boolean;
   hotline: boolean;
   sms_terkirim: number;
   sms_gagal: number;
@@ -43,7 +45,9 @@ function backoffMs(): number {
  *
  * Isi SMS memuat nama mahasiswa (agar penerima dapat menjangkau) tetapi tidak memuat
  * situasi, koordinat, atau isi keluhan. Nomor utuh tidak pernah ditulis ke log.
- * Tidak pernah melempar error: kegagalan dicatat di `log_eskalasi`.
+ * Tidak pernah melempar error: kegagalan SMS dicatat di `log_eskalasi`; error tak terduga
+ * menghasilkan `selesai: false` agar `EskalasiService` mengulang. Aman diulang: penerima
+ * yang sudah TERKIRIM untuk SOS ini dilewati dan info hotline hanya dicatat sekali.
  */
 @Injectable()
 export class EskalasiTindakanService {
@@ -57,7 +61,9 @@ export class EskalasiTindakanService {
   ) {}
 
   async jalankan(sos: SosTereskalasi): Promise<HasilTindakan> {
-    const hasil: HasilTindakan = { hotline: false, sms_terkirim: 0, sms_gagal: 0, kontak_darurat_dilewati: null };
+    const hasil: HasilTindakan = {
+      selesai: false, hotline: false, sms_terkirim: 0, sms_gagal: 0, kontak_darurat_dilewati: null,
+    };
     try {
       const config = await this.konfigurasi.ambil();
       if (config.hotline_aktif) {
@@ -65,7 +71,7 @@ export class EskalasiTindakanService {
         hasil.hotline = true;
       }
 
-      const [mahasiswa, penerimaKampus, kontak] = await Promise.all([
+      const [mahasiswa, penerimaKampus, kontak, sudahTerkirim] = await Promise.all([
         this.namaMahasiswa(sos.id_mahasiswa),
         this.penerimaEskalasi(),
         this.kontakDaruratDiizinkan(sos, config).then(async (izin) => {
@@ -75,6 +81,7 @@ export class EskalasiTindakanService {
           }
           return this.kontakDarurat(sos.id_mahasiswa);
         }),
+        this.penerimaSudahTerkirim(sos.id_sos),
       ]);
 
       const hotline = config.hotline_aktif ? ` Bantuan krisis: ${config.hotline_label}.` : '';
@@ -88,12 +95,15 @@ export class EskalasiTindakanService {
           `Mohon segera hubungi ${mahasiswa}.${hotline}`,
       };
 
+      const semua = [...penerimaKampus, ...kontak];
+      const target = semua.filter((t) => !sudahTerkirim.has(this.ref(t)));
       const hasilKirim = await Promise.all(
-        [...penerimaKampus, ...kontak].map((target) => this.kirimDenganRetry(sos.id_sos, target, teks[target.jenis])),
+        target.map((t) => this.kirimDenganRetry(sos.id_sos, t, teks[t.jenis])),
       );
       hasil.sms_terkirim = hasilKirim.filter(Boolean).length;
       hasil.sms_gagal = hasilKirim.length - hasil.sms_terkirim;
-      if (hasilKirim.length === 0) {
+      hasil.selesai = true;
+      if (semua.length === 0) {
         this.logger.warn(`SOS ${sos.id_sos} tereskalasi tanpa penerima SMS (atur penerima eskalasi di admin)`);
       }
     } catch (error) {
@@ -118,6 +128,20 @@ export class EskalasiTindakanService {
     );
     if (riwayat.rows[0].jumlah >= config.maks_eskalasi_kontak_per_hari) return 'BATAS_HARIAN';
     return null;
+  }
+
+  /** Rujukan stabil penerima (`jenis:id`) untuk melewati yang sudah terkirim saat retry. */
+  private ref(target: TargetSms): string {
+    return `${target.jenis}:${target.id}`;
+  }
+
+  private async penerimaSudahTerkirim(idSos: string): Promise<Set<string>> {
+    const result = await this.pool.query<{ penerima_ref: string }>(
+      `SELECT penerima_ref FROM log_eskalasi
+       WHERE id_sos = $1 AND kanal = 'SMS' AND status = 'TERKIRIM' AND penerima_ref IS NOT NULL`,
+      [idSos],
+    );
+    return new Set(result.rows.map((row) => row.penerima_ref));
   }
 
   private async kirimDenganRetry(idSos: string, target: TargetSms, teks: string): Promise<boolean> {
@@ -148,12 +172,13 @@ export class EskalasiTindakanService {
     try {
       await this.pool.query(
         `INSERT INTO log_eskalasi
-           (id_sos, kanal, jenis_penerima, penerima_masked, status, provider_message_id, percobaan_ke, error)
-         VALUES ($1, 'SMS', $2, $3, $4, $5, $6, $7)`,
+           (id_sos, kanal, jenis_penerima, penerima_masked, status, provider_message_id, percobaan_ke, error, penerima_ref)
+         VALUES ($1, 'SMS', $2, $3, $4, $5, $6, $7, $8)`,
         [
           idSos, target.jenis, maskNomor(target.nomor), status, providerMessageId, percobaan,
           // Pesan error provider bisa memuat nomor; samarkan deret digit panjang.
           error ? error.replace(/\+?\d{7,}/g, (m) => maskNomor(m)).slice(0, 500) : null,
+          this.ref(target),
         ],
       );
     } catch (logError) {
@@ -165,7 +190,8 @@ export class EskalasiTindakanService {
     await this.pool.query(`UPDATE log_sos SET eskalasi_119 = true WHERE id_sos = $1`, [idSos]);
     await this.pool.query(
       `INSERT INTO log_eskalasi (id_sos, kanal, jenis_penerima, penerima_masked, status)
-       VALUES ($1, 'INFO_HOTLINE', 'HOTLINE', $2, 'TERKIRIM')`,
+       SELECT $1, 'INFO_HOTLINE', 'HOTLINE', $2, 'TERKIRIM'
+       WHERE NOT EXISTS (SELECT 1 FROM log_eskalasi WHERE id_sos = $1 AND kanal = 'INFO_HOTLINE')`,
       [idSos, label.slice(0, 100)],
     );
   }

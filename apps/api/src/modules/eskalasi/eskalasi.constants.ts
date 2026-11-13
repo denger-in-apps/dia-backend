@@ -9,3 +9,9 @@ export type SumberEskalasi = 'TIMER' | 'TANPA_PSIKOLOG' | 'SAPU';
 
 /** Jeda ekstra sebelum sweeper DB mengambil alih timer yang hilang (Redis mati / job lenyap). */
 export const SAPU_TOLERANSI_DETIK = 15;
+
+/** Klaim tindakan eskalasi dianggap mati setelah sekian detik (jauh di atas durasi kirim SMS ≈ 20 dtk). */
+export const KLAIM_KEDALUWARSA_DETIK = 120;
+
+/** Percobaan tindakan eskalasi (SMS/hotline) maksimal sebelum dicatat butuh penanganan manual. */
+export const MAKS_PERCOBAAN_TINDAKAN = 5;

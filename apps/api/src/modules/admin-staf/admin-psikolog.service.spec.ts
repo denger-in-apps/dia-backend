@@ -85,6 +85,8 @@ describe('AdminPsikologService', () => {
     expect(result).toMatchObject({ kasus_dikembalikan: 1, jadwal_dihapus: 2 });
     const [sosSql, sosParams] = call('UPDATE log_sos')!;
     expect(sosSql).toContain("SET status_penanganan = 'ESKALASI', id_psikolog = NULL");
+    // Tidak memicu SMS eskalasi susulan oleh sweeper (SCRUM-235): kasus ini sudah sempat ditangani.
+    expect(sosSql).toContain('tindakan_eskalasi_at = COALESCE(tindakan_eskalasi_at, now())');
     expect(sosSql).toContain("status_penanganan IN ('DIAMBIL', 'DITANGANI')");
     expect(sosParams).toEqual([idPsi]);
     expect(call('DELETE FROM jadwal_jaga')![1]).toEqual([idPsi, 'Asia/Jakarta']);
