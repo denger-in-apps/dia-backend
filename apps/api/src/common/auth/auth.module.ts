@@ -15,6 +15,8 @@ import { SSO_STRATEGY } from './sso-strategy';
 import { AkademikModule } from '../../modules/akademik/akademik.module';
 import { MfaService } from './mfa.service';
 import { MfaTokenService } from './mfa-token.service';
+import { LockoutLoginService } from './lockout-login.service';
+import { AuditModule } from '../audit/audit.module';
 
 function requiredFile(name: string): string {
   const path = process.env[name];
@@ -27,6 +29,7 @@ function requiredFile(name: string): string {
     CryptoModule,
     RedisModule,
     AkademikModule,
+    AuditModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     JwtModule.registerAsync({
       useFactory: () => ({
@@ -52,6 +55,7 @@ function requiredFile(name: string): string {
     AccessTokenService,
     MfaTokenService,
     MfaService,
+    LockoutLoginService,
     OidcSsoStrategy,
     {
       provide: SSO_STRATEGY,

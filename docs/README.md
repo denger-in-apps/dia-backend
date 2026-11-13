@@ -240,9 +240,8 @@ ke penyimpanan terpisah agar tetap tersedia bila host lokal gagal.
 - `POST /api/v1/auth/refresh` merotasi refresh cookie; `POST /api/v1/auth/logout` mencabut seluruh keluarga token.
 - `GET /api/v1/auth/me` memerlukan `Authorization: Bearer <accessToken>`.
 
-Endpoint login staf dibatasi 5 percobaan per menit dan awal login SSO 10
-percobaan per menit per alamat IP (rate limit in-memory untuk prototipe satu
-instance). Refresh tanpa cookie valid membalas 401; refresh dan logout memerlukan
+Endpoint login staf dibatasi 5 percobaan per menit per IP plus lockout bertahap per
+akun, dan awal login SSO 120 percobaan per menit per IP (lihat PBI-01 §4). Refresh tanpa cookie valid membalas 401; refresh dan logout memerlukan
 header `Origin` yang cocok dengan salah satu nilai `CORS_ORIGINS`.
 
 Access token RS256 berlaku 15 menit; refresh token acak disimpan hanya sebagai

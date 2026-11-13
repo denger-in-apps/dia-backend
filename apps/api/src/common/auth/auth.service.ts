@@ -19,6 +19,8 @@ import { AUTH_REDIS } from './sso-state.lifecycle';
 import { ensureRedisConnection } from '../redis/redis.module';
 import { cocokkanTotp, TOTP_DRIFT_STEPS, TOTP_STEP_MS } from './totp';
 import { MfaTokenService } from './mfa-token.service';
+import { LockoutLoginService } from './lockout-login.service';
+import { AuditService } from '../audit/audit.service';
 
 interface RefreshRow {
   id: string;
@@ -44,6 +46,8 @@ export class AuthService {
     private readonly akademik: AkademikService,
     @Inject(AUTH_REDIS) private readonly redis: Redis,
     private readonly mfaToken: MfaTokenService,
+    private readonly lockout: LockoutLoginService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Hash dummy agar email yang tidak terdaftar tetap menjalankan argon2 (anti-enumerasi). */
@@ -65,8 +69,19 @@ export class AuthService {
       : `SELECT id_dosen::text AS id, nama, email::text AS email, password_hash,
                 mfa_secret_enc, aktif
          FROM dosen_admin WHERE email = $1`;
+    await this.lockout.pastikanTidakTerkunci(role, email);
     const result = await this.pool.query(query, [email.trim().toLowerCase()]);
     const account = result.rows[0];
+    const gagal = async (alasan: 'PASSWORD' | 'OTP'): Promise<never> => {
+      const jumlah = await this.lockout.catatGagal(role, email);
+      // Audit tanpa email/password (02-backend.md §10); resourceId hanya bila akun ada.
+      await this.audit.catat({
+        aksi: 'LOGIN_GAGAL', resourceType: isPsychologist ? 'psikolog' : 'dosen_admin',
+        resourceId: account?.id, hasil: 'DITOLAK', ip, userAgent,
+        metadata: { alasan, gagal_berturut: jumlah },
+      }).catch(() => undefined);
+      throw new UnauthorizedException('Email atau password salah');
+    };
 
     let passwordIsValid = false;
     try {
@@ -77,18 +92,14 @@ export class AuthService {
     } catch {
       passwordIsValid = false;
     }
-    if (!account?.password_hash || !passwordIsValid) {
-      throw new UnauthorizedException('Email atau password salah');
-    }
+    if (!account?.password_hash || !passwordIsValid) await gagal('PASSWORD');
     if (!account.aktif) throw new ForbiddenException('Akun staf belum aktif');
 
     if (account.mfa_secret_enc) {
       const step = otp ? this.verifyTotp(account.mfa_secret_enc, role, account.id, otp) : null;
-      if (step === null || !(await this.consumeTotpStep(role, account.id, step))) {
-        throw new UnauthorizedException('Email atau password salah');
-      }
+      if (step === null || !(await this.consumeTotpStep(role, account.id, step))) await gagal('OTP');
     } else if (otp) {
-      throw new UnauthorizedException('Email atau password salah');
+      await gagal('OTP');
     } else if (this.staffMfaRequired()) {
       // Password sudah benar: beri token pendaftaran MFA sekali pakai (10 menit) agar staf
       // dapat mendaftarkan authenticator tanpa sesi penuh (POST /auth/staff/mfa/mulai).
@@ -99,6 +110,7 @@ export class AuthService {
       });
     }
 
+    await this.lockout.reset(role, email);
     return this.issueSession({ id: account.id, role }, ip, userAgent);
   }
 

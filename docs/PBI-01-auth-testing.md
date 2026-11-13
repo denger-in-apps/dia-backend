@@ -113,8 +113,13 @@ https://localhost:18443/api/v1
 | `POST /auth/refresh` dengan Origin tidak diizinkan | HTTP `403` |
 | `POST /auth/logout` dengan Origin valid dan cookie sesi | HTTP `204` |
 
-Login staf dibatasi 5 percobaan per menit per alamat IP. Endpoint awal login OIDC
-dibatasi 10 percobaan per menit per IP.
+Login staf dibatasi 5 percobaan per menit per alamat IP **dan** lockout bertahap per akun
+(role + email): setelah 5 kegagalan dalam 1 jam akun dikunci 1 menit, setelah 10 kegagalan
+15 menit (`429 AKUN_TERKUNCI_SEMENTARA` + `detail.coba_lagi_detik`). Lockout berlaku sama untuk
+email yang tidak terdaftar (anti-enumerasi) dan dilewati bila Redis mati (throttle IP tetap
+berlaku). Setiap kegagalan dicatat `LOGIN_GAGAL` di audit log tanpa email/password. Endpoint
+awal login OIDC dibatasi 120 percobaan per menit per IP (longgar karena banyak mahasiswa berbagi
+IP NAT kampus; kredensial divalidasi IdP).
 
 ## 5. Uji verifikasi mahasiswa aktif (PBI-02)
 

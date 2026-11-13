@@ -16,6 +16,8 @@ describe('AuthService', () => {
   let encryption: { decrypt: jest.Mock };
   let akademik: { wajibAktif: jest.Mock; verifikasi: jest.Mock };
   let redis: { status: string; set: jest.Mock };
+  let lockout: { pastikanTidakTerkunci: jest.Mock; catatGagal: jest.Mock; reset: jest.Mock };
+  let audit: { catat: jest.Mock };
 
   const refreshRow = (overrides: Record<string, unknown> = {}) => ({
     id: 'old-row-id', role: 'MAHASISWA', id_pengguna: userId,
@@ -33,6 +35,12 @@ describe('AuthService', () => {
       verifikasi: jest.fn().mockResolvedValue({ aktif: true, sumber: 'api' }),
     };
     redis = { status: 'ready', set: jest.fn().mockResolvedValue('OK') };
+    lockout = {
+      pastikanTidakTerkunci: jest.fn().mockResolvedValue(undefined),
+      catatGagal: jest.fn().mockResolvedValue(1),
+      reset: jest.fn().mockResolvedValue(undefined),
+    };
+    audit = { catat: jest.fn().mockResolvedValue(undefined) };
     // Pre-check status mahasiswa (di luar transaksi) default: tidak perlu re-verifikasi.
     pool.query.mockResolvedValue({ rows: [] });
     service = new AuthService(
@@ -42,6 +50,8 @@ describe('AuthService', () => {
       akademik as never,
       redis as never,
       { terbitkan: jest.fn().mockResolvedValue('mfa-setup-token') } as never,
+      lockout as never,
+      audit as never,
     );
     delete process.env.REFRESH_TOKEN_TTL_SECONDS;
     delete process.env.REFRESH_REUSE_GRACE_SECONDS;
@@ -227,6 +237,30 @@ describe('AuthService', () => {
       process.env.NODE_ENV = previousEnv;
     }
     expect(pool.connect).not.toHaveBeenCalled();
+  });
+
+  it('records failed staff logins for lockout and audit without the email, and resets on success', async () => {
+    const hash = await argon2.hash('correct horse battery staple');
+    pool.query.mockResolvedValue({ rows: [{ id: userId, password_hash: hash, aktif: true, mfa_secret_enc: null }] });
+    await expect(service.loginStaff('PSIKOLOG', 'psy@example.edu', 'salah', undefined, '1.2.3.4', 'ua'))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(lockout.catatGagal).toHaveBeenCalledWith('PSIKOLOG', 'psy@example.edu');
+    const entry = audit.catat.mock.calls[0][0];
+    expect(entry).toMatchObject({ aksi: 'LOGIN_GAGAL', resourceId: userId, hasil: 'DITOLAK', ip: '1.2.3.4' });
+    expect(JSON.stringify(entry)).not.toContain('psy@example.edu');
+    expect(lockout.reset).not.toHaveBeenCalled();
+
+    client.query.mockImplementation(async (sql: string) =>
+      sql.includes('INSERT INTO refresh_token') ? { rows: [{ id: 'r' }] } : { rows: [] });
+    await service.loginStaff('PSIKOLOG', 'psy@example.edu', 'correct horse battery staple', undefined, undefined, undefined);
+    expect(lockout.reset).toHaveBeenCalledWith('PSIKOLOG', 'psy@example.edu');
+  });
+
+  it('refuses locked accounts before checking the password', async () => {
+    lockout.pastikanTidakTerkunci.mockRejectedValue(new Error('AKUN_TERKUNCI_SEMENTARA'));
+    await expect(service.loginStaff('PSIKOLOG', 'psy@example.edu', 'x', undefined, undefined, undefined))
+      .rejects.toThrow('AKUN_TERKUNCI_SEMENTARA');
+    expect(pool.query).not.toHaveBeenCalled();
   });
 
   it('rejects a replayed TOTP code', async () => {
