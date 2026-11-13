@@ -85,7 +85,7 @@ describe('Sesi controllers', () => {
   it.each([
     [{ ciphertext: 'bukan base64!!', nonce: 'AAAA' }],
     [{ ciphertext: 'AAAA' }],
-    [{ ...{ ciphertext: 'AAAA', nonce: 'AAAA' }, plaintext: 'halo' }],
+    [{ ciphertext: 'AAAA', nonce: 'AAAA', plaintext: 'halo' }],
   ])('rejects malformed message body %j', async (body) => {
     await request(app.getHttpServer())
       .post(`/api/v1/sesi/${id}/pesan`).set('Authorization', bearer('MAHASISWA')).send(body).expect(400);

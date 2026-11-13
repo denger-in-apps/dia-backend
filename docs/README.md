@@ -280,11 +280,18 @@ service API hanya menerima `DATABASE_URL` untuk `denger_app` dan
 `REPORT_DATABASE_URL` untuk `denger_report`. Kredensial default Compose hanya
 untuk development lokal. `synchronize` tetap nonaktif.
 
-## Scripts
-- start:dev
-- build
-- migration:run
-- migration:revert
-- migration:generate
-- seeder
-- test / test:e2e
+## Scripts (`apps/api`)
+
+| Skrip | Fungsi |
+|---|---|
+| `npm run start:dev` | API dengan hot reload |
+| `npm run build` / `npm run start:prod` | Kompilasi ke `dist/` / jalankan hasil build |
+| `npm run lint` | oxlint (`.oxlintrc.json`) |
+| `npm run typecheck` | `tsc --noEmit` untuk kode aplikasi |
+| `npm test` / `npm run test:e2e` | Unit test (Jest) / e2e terhadap service Compose |
+| `npm run migration:run` · `migration:revert` · `migration:show` | Migrasi TypeORM (`-t each`) |
+| `npm run seed:dev-auth` | Akun uji development (hanya `NODE_ENV=development`) |
+| `npm run admin:buat` | Buat/reset akun dosen admin (boleh di produksi, lihat PBI-01 §6) |
+
+Pasang dependensi dengan `npm ci`: `package-lock.json` harus selalu sinkron dengan
+`package.json` (Dockerfile dan CI memakai `npm ci`).

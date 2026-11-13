@@ -72,7 +72,7 @@ export class KonfigurasiSosService {
 
   async ambil(): Promise<KonfigurasiSos> {
     const result = await this.pool.query<KonfigurasiSos>(`SELECT ${SELECT_KOLOM} FROM konfigurasi_sos WHERE id = 1`);
-    return { ...KONFIGURASI_DEFAULT, ...(result.rows[0] ?? {}) };
+    return { ...KONFIGURASI_DEFAULT, ...result.rows[0] };
   }
 
   /** Ubah sebagian konfigurasi (FR-ADM-05); dicatat `KONFIGURASI_SOS_UBAH` dengan nilai sebelum/sesudah. */

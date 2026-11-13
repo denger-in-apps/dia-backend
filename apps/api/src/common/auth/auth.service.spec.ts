@@ -2,7 +2,7 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { createHash, createHmac } from 'crypto';
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { EncryptionService } from '../crypto/encryption.service';
 import { AuthService } from './auth.service';
 
