@@ -199,6 +199,14 @@ describe('GentaService', () => {
     expect(eskalasi.batalkan).toHaveBeenCalledWith(sosRow.id_sos);
   });
 
+  it('withdraws location consent (lokasi_izin = false) together with the coordinates when cancelling (SCRUM-226)', async () => {
+    pool.query.mockResolvedValueOnce({ rows: [{ ...sosRow, status_penanganan: 'SELESAI' }] });
+    await service.batalkan(mhs, sosRow.id_sos);
+    const [sql] = pool.query.mock.calls.find(([q]) => String(q).includes("alasan_selesai = 'DIBATALKAN_MAHASISWA'"))!;
+    expect(sql).toContain('lokasi_izin = false');
+    expect(sql).toContain('koordinat_lokasi_enc = NULL');
+  });
+
   it('explains why a cancellation is refused', async () => {
     pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ status_penanganan: 'DIAMBIL' }] });
     await expect(service.batalkan(mhs, sosRow.id_sos)).rejects.toBeInstanceOf(ConflictException);

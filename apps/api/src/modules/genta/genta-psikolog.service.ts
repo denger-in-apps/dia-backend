@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
@@ -128,28 +129,47 @@ export class GentaPsikologService {
       [psikolog.id, idSos],
     );
     const row = result.rows[0];
-    if (!row) throw this.sosTidakDitemukan();
+    // Audit hanya untuk akses data sensitif (identitas/catatan) dan percobaan yang ditolak; metadata
+    // berisi kode alasan saja — tidak pernah identitas mahasiswa, catatan, koordinat, atau token.
+    const auditBase = {
+      aktor: psikolog, aksi: 'SOS_DETAIL_READ', resourceType: 'log_sos', resourceId: idSos,
+      ip: ctx.ip, userAgent: ctx.userAgent,
+    };
+    if (!row) {
+      await this.audit.catat({ ...auditBase, hasil: 'DITOLAK', metadata: { alasan: 'SOS_TIDAK_DITEMUKAN' } });
+      throw this.sosTidakDitemukan();
+    }
 
     const {
       nim, nama_asli, email, catatan_penanganan_enc, total_sos, laporan_tidak_valid, ...sos
     } = row;
     if (sos.milik_saya) {
-      await this.audit.catat({
-        aktor: psikolog, aksi: 'SOS_DETAIL_READ', resourceType: 'log_sos', resourceId: idSos,
-        ip: ctx.ip, userAgent: ctx.userAgent,
-      });
+      // Dekripsi lebih dulu: SUKSES baru dicatat setelah seluruh data sensitif berhasil disiapkan.
+      let catatan: string | null = null;
+      if (catatan_penanganan_enc) {
+        try {
+          catatan = this.encryption.decrypt(catatan_penanganan_enc, this.aadCatatan(idSos)).toString('utf8');
+        } catch {
+          await this.audit.catat({ ...auditBase, hasil: 'DITOLAK', metadata: { alasan: 'DEKRIPSI_GAGAL' } });
+          throw new InternalServerErrorException({
+            kode: 'CATATAN_TIDAK_DAPAT_DIBUKA',
+            pesan: 'Catatan penanganan tidak dapat dibuka. Hubungi admin sistem.',
+          });
+        }
+      }
+      await this.audit.catat({ ...auditBase, hasil: 'SUKSES' });
       return {
         ...this.withLabel(sos),
         mahasiswa: { nim, nama: nama_asli, email },
         riwayat_30_hari: { total_sos, laporan_tidak_valid },
-        catatan_penanganan: catatan_penanganan_enc
-          ? this.encryption.decrypt(catatan_penanganan_enc, this.aadCatatan(idSos)).toString('utf8')
-          : null,
+        catatan_penanganan: catatan,
       };
     }
     if (STATUS_ANTREAN.includes(sos.status_penanganan)) {
+      // Kasus di antrean: tanpa identitas/catatan, sehingga tidak ada data sensitif yang diaudit.
       return { ...this.withLabel(sos), mahasiswa: null, riwayat_30_hari: null, catatan_penanganan: null };
     }
+    await this.audit.catat({ ...auditBase, hasil: 'DITOLAK', metadata: { alasan: 'BUKAN_PENANGAN_KASUS' } });
     throw this.bukanPenangan();
   }
 
@@ -213,6 +233,7 @@ export class GentaPsikologService {
              alasan_selesai = $4,
              ditandai_iseng = $5,
              catatan_penanganan_enc = COALESCE($6, catatan_penanganan_enc),
+             lokasi_izin = CASE WHEN $7 THEN false ELSE lokasi_izin END,
              koordinat_lokasi_enc = CASE WHEN $7 THEN NULL ELSE koordinat_lokasi_enc END
          WHERE id_sos = $1 AND id_psikolog = $2 AND status_penanganan IN ('DIAMBIL', 'DITANGANI')
          RETURNING id_sos::text AS id_sos, status_penanganan, id_psikolog::text AS id_psikolog`,
@@ -257,8 +278,8 @@ export class GentaPsikologService {
        FROM log_sos WHERE id_sos = $1`,
       [idSos],
     );
+
     const sos = result.rows[0];
-    if (!sos) throw this.sosTidakDitemukan();
 
     const auditBase = {
       aktor: psikolog,
@@ -268,16 +289,46 @@ export class GentaPsikologService {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
     };
+
+    if (!sos) {
+      // Percobaan membaca lokasi SOS yang tidak ada tetap diaudit (mis. menebak ID kasus).
+      await this.audit.catat({
+        ...auditBase,
+        hasil: 'DITOLAK',
+        metadata: { alasan: 'SOS_TIDAK_DITEMUKAN' },
+      });
+      throw this.sosTidakDitemukan();
+    }
+
     if (sos.id_psikolog !== psikolog.id || !STATUS_DIPEGANG.includes(sos.status_penanganan)) {
-      await this.audit.catat({ ...auditBase, hasil: 'DITOLAK', metadata: { alasan: 'BUKAN_PENANGAN_KASUS' } });
+      await this.audit.catat({
+        ...auditBase,
+        hasil: 'DITOLAK',
+        metadata: { alasan: 'BUKAN_PENANGAN_KASUS' },
+      });
       throw this.bukanPenangan();
     }
+
     if (!sos.lokasi_izin || !sos.koordinat_lokasi_enc) {
-      throw new NotFoundException({ kode: 'LOKASI_TIDAK_DIBAGIKAN', pesan: 'Mahasiswa tidak membagikan lokasi' });
+      await this.audit.catat({
+        ...auditBase,
+        hasil: 'DITOLAK',
+        metadata: { alasan: 'LOKASI_TIDAK_DIBAGIKAN' },
+      });
+
+      throw new NotFoundException({
+        kode: 'LOKASI_TIDAK_DIBAGIKAN',
+        pesan: 'Mahasiswa tidak membagikan lokasi',
+      });
     }
 
     const lokasi = this.lokasi.dekripsi(idSos, sos.koordinat_lokasi_enc);
-    await this.audit.catat(auditBase);
+
+    await this.audit.catat({
+      ...auditBase,
+      hasil: 'SUKSES',
+    });
+
     return {
       id_sos: idSos,
       ...lokasi,

@@ -1,14 +1,17 @@
+
 import { Type } from 'class-transformer';
 import {
   Equals,
   IsIn,
   IsJWT,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { KODE_SITUASI_SOS, SituasiSos } from './genta.constants';
@@ -48,7 +51,8 @@ export class BuatSosDto {
   konfirmasi!: true;
 
   /** Opsional: hanya dikirim bila mahasiswa memilih berbagi lokasi (FR-MHS-04). */
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsObject()
   @ValidateNested()
   @Type(() => LokasiDto)
   lokasi?: LokasiDto;

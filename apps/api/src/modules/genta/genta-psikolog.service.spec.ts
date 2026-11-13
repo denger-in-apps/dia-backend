@@ -84,7 +84,25 @@ describe('GentaPsikologService', () => {
       expect(detail.riwayat_30_hari).toEqual({ total_sos: 3, laporan_tidak_valid: 1 });
       expect(detail.catatan_penanganan).toBe('Sudah ditelepon');
       expect(detail).not.toHaveProperty('catatan_penanganan_enc');
-      expect(audit.catat).toHaveBeenCalledWith(expect.objectContaining({ aksi: 'SOS_DETAIL_READ', resourceId: idSos }));
+      expect(audit.catat).toHaveBeenCalledTimes(1);
+      expect(audit.catat).toHaveBeenCalledWith(expect.objectContaining({ aksi: 'SOS_DETAIL_READ', resourceId: idSos, hasil: 'SUKSES' }));
+      // Metadata audit tidak memuat identitas mahasiswa maupun catatan.
+      expect(JSON.stringify(audit.catat.mock.calls)).not.toMatch(/2026001|Budi|budi@kampus|ditelepon/);
+    });
+
+    it('does not record SUKSES when decrypting the notes fails (fails closed, audited as DITOLAK)', async () => {
+      // Ciphertext yang terikat ke SOS lain (AAD berbeda) → dekripsi gagal.
+      const encLain = encryption.encrypt('Rahasia', `log_sos:catatan_penanganan_enc:${lain}`);
+      pool.query.mockResolvedValue({ rows: [detailRow({ catatan_penanganan_enc: encLain })] });
+
+      await expect(service.detail(psikolog, idSos, {})).rejects.toMatchObject({
+        response: { kode: 'CATATAN_TIDAK_DAPAT_DIBUKA' },
+      });
+      expect(audit.catat).toHaveBeenCalledTimes(1);
+      expect(audit.catat).toHaveBeenCalledWith(expect.objectContaining({
+        aksi: 'SOS_DETAIL_READ', hasil: 'DITOLAK', metadata: { alasan: 'DEKRIPSI_GAGAL' },
+      }));
+      expect(audit.catat).not.toHaveBeenCalledWith(expect.objectContaining({ hasil: 'SUKSES' }));
     });
 
     it('hides identity for queued cases', async () => {
@@ -96,11 +114,15 @@ describe('GentaPsikologService', () => {
       expect(audit.catat).not.toHaveBeenCalled();
     });
 
-    it("forbids another psychologist's case and 404s unknown cases", async () => {
+    it("forbids another psychologist's case and 404s unknown cases — both audited as DITOLAK once", async () => {
       pool.query.mockResolvedValueOnce({ rows: [detailRow({ milik_saya: false })] });
       await expect(service.detail(psikolog, idSos, {})).rejects.toBeInstanceOf(ForbiddenException);
       pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(service.detail(psikolog, idSos, {})).rejects.toBeInstanceOf(NotFoundException);
+      expect(audit.catat.mock.calls.map(([e]) => [e.aksi, e.hasil, e.metadata])).toEqual([
+        ['SOS_DETAIL_READ', 'DITOLAK', { alasan: 'BUKAN_PENANGAN_KASUS' }],
+        ['SOS_DETAIL_READ', 'DITOLAK', { alasan: 'SOS_TIDAK_DITEMUKAN' }],
+      ]);
     });
   });
 
@@ -243,7 +265,7 @@ describe('GentaPsikologService', () => {
       expect(audit.catat).toHaveBeenCalledWith(expect.objectContaining({
         aksi: 'SOS_LOKASI_READ', resourceId: idSos, aktor: psikolog, ip: '10.0.0.2',
       }));
-      expect(audit.catat.mock.calls[0][0].hasil).toBeUndefined();
+      expect(audit.catat.mock.calls[0][0].hasil).toBe('SUKSES');
     });
 
     it.each([
@@ -256,15 +278,68 @@ describe('GentaPsikologService', () => {
       expect(audit.catat).toHaveBeenCalledWith(expect.objectContaining({ aksi: 'SOS_LOKASI_READ', hasil: 'DITOLAK' }));
     });
 
-    it('reports when the student did not share a location', async () => {
-      pool.query.mockResolvedValue({ rows: [row({ lokasi_izin: false, koordinat_lokasi_enc: null })] });
-      await expect(service.lokasiSos(psikolog, idSos, {})).rejects.toBeInstanceOf(NotFoundException);
+    it('reports when the student did not share a location and audits the denied access', async () => {
+  pool.query.mockResolvedValue({
+    rows: [row({ lokasi_izin: false, koordinat_lokasi_enc: null })],
+  });
+
+  await expect(
+    service.lokasiSos(psikolog, idSos, {}),
+  ).rejects.toBeInstanceOf(NotFoundException);
+
+  expect(audit.catat).toHaveBeenCalledWith(
+    expect.objectContaining({
+      aksi: 'SOS_LOKASI_READ',
+      resourceId: idSos,
+      hasil: 'DITOLAK',
+      metadata: { alasan: 'LOKASI_TIDAK_DIBAGIKAN' },
+    }),
+  );
+});
+
+    it('returns 404 for an unknown SOS and audits the denied read exactly once (PBI-06)', async () => {
+      pool.query.mockResolvedValue({ rows: [] });
+      await expect(service.lokasiSos(psikolog, idSos, { ip: '10.0.0.3', userAgent: 'jest' }))
+        .rejects.toMatchObject({ response: { kode: 'SOS_TIDAK_DITEMUKAN' } });
+      expect(audit.catat).toHaveBeenCalledTimes(1);
+      expect(audit.catat).toHaveBeenCalledWith({
+        aktor: psikolog,
+        aksi: 'SOS_LOKASI_READ',
+        resourceType: 'log_sos',
+        resourceId: idSos,
+        hasil: 'DITOLAK',
+        ip: '10.0.0.3',
+        userAgent: 'jest',
+        metadata: { alasan: 'SOS_TIDAK_DITEMUKAN' },
+      });
     });
 
-    it('returns 404 for an unknown SOS', async () => {
-      pool.query.mockResolvedValue({ rows: [] });
-      await expect(service.lokasiSos(psikolog, idSos, {})).rejects.toBeInstanceOf(NotFoundException);
-      expect(audit.catat).not.toHaveBeenCalled();
+    it('audits each denial exactly once and never logs coordinates', async () => {
+      pool.query.mockResolvedValue({ rows: [row({ id_psikolog: lain })] });
+      await expect(service.lokasiSos(psikolog, idSos, {})).rejects.toBeInstanceOf(ForbiddenException);
+      pool.query.mockResolvedValue({ rows: [row()] });
+      await service.lokasiSos(psikolog, idSos, {});
+      expect(audit.catat).toHaveBeenCalledTimes(2);
+      const serialized = JSON.stringify(audit.catat.mock.calls);
+      expect(serialized).not.toContain('107.6');
+      expect(serialized).not.toContain('-6.9');
+    });
+  });
+
+  describe('SosLokasiService (AES-256-GCM, AAD terikat ID SOS)', () => {
+    it('stores ciphertext without plaintext coordinates and decrypts only with the same SOS id', () => {
+      const enc = lokasi.enkripsi(idSos, { lat: -6.914744, lng: 107.609810, akurasi_m: 12 });
+      expect(enc.toString('latin1')).not.toContain('-6.914744');
+      expect(enc.toString('latin1')).not.toContain('107.60981');
+      expect(lokasi.dekripsi(idSos, enc)).toMatchObject({ lat: -6.914744, lng: 107.60981, akurasi_m: 12 });
+      // Ciphertext yang disalin ke kasus lain tidak dapat dibuka (AAD berbeda).
+      expect(() => lokasi.dekripsi(lain, enc)).toThrow();
+    });
+
+    it('produces a different ciphertext for the same coordinates (random IV)', () => {
+      const a = lokasi.enkripsi(idSos, { lat: 1, lng: 2 });
+      const b = lokasi.enkripsi(idSos, { lat: 1, lng: 2 });
+      expect(a.equals(b)).toBe(false);
     });
   });
 });
