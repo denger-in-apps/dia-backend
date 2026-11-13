@@ -136,6 +136,9 @@ export class InitSchema0001 implements MigrationInterface {
 Aturan migrasi:
 
 - Satu perubahan = satu berkas, dikaji lewat PR; **jangan mengedit migrasi yang sudah ter-merge**.
+- `npm run migration:run` memakai `-t each` (satu transaksi per migrasi). Migrasi yang menambah
+  nilai enum lalu langsung memakainya mendeklarasikan `transaction = false`, karena PostgreSQL
+  melarang nilai enum baru dipakai di transaksi yang sama.
 - Kompatibel mundur satu versi (tambah kolom nullable → deploy kode → isi data → tambah constraint) agar rolling deploy aman.
 - Perubahan destruktif (drop kolom/tabel) minimal dua rilis setelah kode berhenti memakainya.
 - CI menjalankan migrasi dari nol di Postgres kosong pada setiap PR.

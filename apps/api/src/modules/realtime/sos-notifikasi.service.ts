@@ -102,7 +102,8 @@ export class SosNotifikasiService {
       if (penerima.length > 0) {
         await this.pool.query(
           `INSERT INTO notifikasi (id_penerima, role, jenis, payload)
-           SELECT penerima, 'PSIKOLOG', 'SOS_BARU', $2::jsonb FROM unnest($1::uuid[]) AS penerima`,
+           SELECT penerima, 'PSIKOLOG', 'SOS_ESKALASI', $2::jsonb FROM unnest($1::uuid[]) AS penerima`,
+          // `eskalasi: true` dipertahankan untuk klien lama yang masih memeriksa flag ini.
           [penerima, JSON.stringify({ ...payload, eskalasi: true })],
         );
       }

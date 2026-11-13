@@ -103,6 +103,7 @@ describe('SosNotifikasiService', () => {
       id_sos: sos.id_sos, sumber: 'TIMER',
     }));
     expect(JSON.parse(insertCall()![1][1])).toMatchObject({ eskalasi: true });
+    expect(insertCall()![0]).toContain("'SOS_ESKALASI'");
 
     pool.query.mockRejectedValue(new Error('db down'));
     await expect(service.sosEskalasi({ id_sos: 'x' } as never)).resolves.toBe(0);

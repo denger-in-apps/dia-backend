@@ -60,7 +60,9 @@ FE menampilkan info hotline secara menonjol ketika status `ESKALASI`.
 ### Sisi psikolog
 
 Event Socket.IO `sos:eskalasi` (namespace `/psikolog`) dikirim ke semua psikolog
-aktif — bukan hanya yang jaga — dan disimpan sebagai notifikasi in-app.
+aktif — bukan hanya yang jaga — dan disimpan sebagai notifikasi in-app berjenis
+`SOS_ESKALASI` (migrasi `1793800400000-NotifikasiSosEskalasi`; payload tetap memuat
+`eskalasi: true` untuk klien lama).
 Kasus `ESKALASI` tetap ada di antrean dashboard dan dapat diambil (PBI-08).
 
 ### Cara cek
