@@ -11,9 +11,13 @@ import { GentaModule } from './modules/genta/genta.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AdminStafModule } from './modules/admin-staf/admin-staf.module';
+import { BookingModule } from './modules/booking/booking.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule, GentaModule, RealtimeModule, AdminStafModule],
+  imports: [
+    ScheduleModule.forRoot(), HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule,
+    GentaModule, RealtimeModule, AdminStafModule, BookingModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

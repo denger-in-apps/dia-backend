@@ -295,6 +295,8 @@ Sinkronisasi `psikolog.status_jaga`: job per menit yang menyetel `status_jaga` b
 
 ### 8.4 Booking & Sesi — PBI-10…14
 
+> Implementasi & kode error rinci: [PBI-10](PBI-10-booking-konseling.md).
+
 | Method | Path | Peran | Keterangan |
 |--------|------|-------|------------|
 | GET | `/psikolog` | Mhs | Daftar psikolog yang dapat dibooking |

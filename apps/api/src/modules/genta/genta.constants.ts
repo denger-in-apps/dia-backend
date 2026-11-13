@@ -1,3 +1,4 @@
+import { intEnv } from '../../common/domain/env';
 import { PrioritasSos } from '../../common/domain/sos';
 
 /**
@@ -30,16 +31,6 @@ export function tentukanPrioritas(situasi: SituasiSos, perluVerifikasi: boolean)
     return 'TINGGI';
   }
   return turun;
-}
-
-function intEnv(name: string, fallback: number, min: number, max: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < min || value > max) {
-    throw new Error(`${name} harus bilangan bulat antara ${min} dan ${max}`);
-  }
-  return value;
 }
 
 /**

@@ -12,4 +12,6 @@ export const EVENT = {
   SOS_DIPERBARUI: 'sos:diperbarui',
   SOS_ESKALASI: 'sos:eskalasi',
   SESI_KEDALUWARSA: 'sesi:kedaluwarsa',
+  /** Booking konseling baru untuk psikolog ini (PBI-10). */
+  BOOKING_BARU: 'booking:baru',
 } as const;
