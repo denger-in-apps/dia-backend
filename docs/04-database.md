@@ -13,7 +13,7 @@
 3. Kolom `*_enc` berisi `bytea` hasil enkripsi aplikasi (AES-256-GCM) — DB tidak pernah melihat plaintext (lihat 02-backend.md §10).
 4. Aturan bisnis kritis ditegakkan **di database** (bukan hanya di kode): anti-bentrok jadwal, ringkasan wajib consent, kuota Circle 5–8, audit append-only, lokasi hanya jika diizinkan.
 5. Data anonim/laporan diakses lewat **view** dan **role DB** terpisah (least privilege).
-6. Hapus data mahasiswa = *soft delete + anonimisasi* (kompromi antara FR-MHS-12 dan kebutuhan audit — lihat 05-security-privacy.md §7).
+6. Hapus data mahasiswa = *soft delete + anonimisasi* (kompromi antara FR-MHS-12 dan kebutuhan audit — lihat PBI-03; 05-security-privacy.md _(dokumen belum ada di repo ini)_).
 
 ---
 
@@ -179,7 +179,7 @@ GRANT SELECT ON v_laporan_genta_bulanan, v_laporan_cek_mandiri_bulanan, v_lapora
 | `sumber_daya` | Unit kesehatan kampus, RS/RSJ rujukan, hotline nasional (**Healing119.id — 119 ext. 8**), komunitas dukungan sebaya — **kontak harus diverifikasi** sebelum rilis |
 | `konfigurasi_sos` | Baris singleton (sudah di-insert oleh DDL) |
 
-**Fixture dev/staging (JANGAN di produksi):** 1 dosen admin, 3 psikolog (1 sedang jaga, 1 tidak, 1 `MENUNGGU_VERIFIKASI`), mahasiswa aktif & nonaktif (cocok dengan mock akademik/Keycloak di 01-infrastructure.md §4), satu Circle `AKTIF` penuh dan satu `DIAJUKAN`, beberapa sesi lintas status, contoh SOS. Semua nama/nomor **fiktif**.
+**Fixture dev/staging (JANGAN di produksi):** 1 dosen admin, 3 psikolog (1 sedang jaga, 1 tidak, 1 `MENUNGGU_VERIFIKASI`), mahasiswa aktif & nonaktif (cocok dengan mock akademik; 01-infrastructure.md _(dokumen belum ada di repo ini)_), satu Circle `AKTIF` penuh dan satu `DIAJUKAN`, beberapa sesi lintas status, contoh SOS. Semua nama/nomor **fiktif**.
 
 ---
 

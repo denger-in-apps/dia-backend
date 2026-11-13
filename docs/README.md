@@ -1,6 +1,8 @@
-﻿# DIA API (NestJS Modular Monolith)
+# Denger.in API (NestJS Modular Monolith)
 
-Setup sesuai dokumen dia-backend/02-backend.md.
+Rancangan backend: [02-backend.md](02-backend.md) · skema database: [04-database.md](04-database.md).
+Dokumen PBI di bawah mencatat perilaku yang **sudah diimplementasikan**; bila berbeda dengan
+02/04 (yang berisi rancangan/usulan), dokumen PBI yang berlaku.
 
 ## Menjalankan dan mengetes backend
 
@@ -21,6 +23,15 @@ Panduan acceptance dan smoke test:
 - [PBI-12 perubahan dan pembatalan sesi](PBI-12-ubah-batal-sesi.md)
 - [PBI-13 ringkasan dan riwayat sesi](PBI-13-ringkasan-riwayat-sesi.md)
 - [PBI-14 pengingat sesi konseling](PBI-14-pengingat-sesi.md)
+
+### Batasan yang diketahui
+
+- Adapter SAML belum ada (`SSO_PROTOCOL=oidc` saja); kontrak REST akademik, SMS, dan email
+  masih generik dan perlu disesuaikan dengan provider resmi.
+- Data master (kategori minat, kuesioner, sumber daya) dan modul PBI-15…21 belum dibuat.
+- Reset MFA staf yang kehilangan perangkat belum punya endpoint (lewat operator DB).
+- Sesi konseling yang tidak pernah dimulai psikolog tetap `DIJADWALKAN` (tidak ditutup otomatis).
+- `AllExceptionsFilter` (format error seragam) belum dibuat.
 
 ### Persiapan (PowerShell)
 

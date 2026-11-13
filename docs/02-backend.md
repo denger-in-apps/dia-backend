@@ -39,7 +39,7 @@ pnpm add @nestjs/config @nestjs/typeorm typeorm pg @nestjs/swagger \
 pnpm add -D @types/passport @types/cookie-parser @types/pg testcontainers
 ```
 
-`package.json` scripts yang diharapkan CI (lihat 01-infrastructure.md):
+`package.json` scripts yang diharapkan CI (01-infrastructure.md _(dokumen belum ada di repo ini)_; skrip aktual: README.md §Scripts):
 
 ```json
 {
@@ -82,6 +82,11 @@ await app.listen(config.port);
 ---
 
 ## 3. Struktur Modul & Pemetaan Backlog
+
+> **Kondisi aktual (berbeda dari rancangan di bawah):** auth ada di `common/auth/` (bukan `modules/auth/`);
+> validasi env di `common/config/`; logger & Swagger di `common/logging/`; adapter akademik, SMS, dan email ada di
+> dalam modul pemakainya (`modules/akademik/`, `modules/eskalasi/sms/`, `modules/notifikasi/email/`), bukan `integrations/`.
+> Modul yang sudah ada: akademik, akun, admin-staf, genta, eskalasi, realtime, booking, sesi, notifikasi.
 
 ```
 apps/api/src/
@@ -185,7 +190,7 @@ Implementasikan **antarmuka** `SsoStrategy` dengan dua implementasi (`Oidc`, `Sa
 ### 5.3 Staf (Psikolog & Dosen Admin)
 
 - `POST /auth/staff/login` {email, password, otp?}. Akun psikolog baru berstatus `MENUNGGU_VERIFIKASI` → **ditolak** sampai Dosen Admin mengaktifkan (use case "Login Akun Staf", alt 4.a).
-- Password: `argon2id`; kebijakan panjang ≥ 12; lockout bertahap setelah gagal berulang; **MFA TOTP sangat disarankan** untuk Psikolog dan Dosen Admin karena mengakses data sensitif (tambahan dari tim — tidak ada di proposal, ditandai sebagai rekomendasi).
+- Password: `argon2id`; kebijakan panjang ≥ 12; lockout bertahap setelah gagal berulang (aktif, PBI-01 §4); **MFA TOTP** (wajib di produksi, pendaftaran PBI-01 §6) — awalnya untuk Psikolog dan Dosen Admin karena mengakses data sensitif (tambahan dari tim — tidak ada di proposal, ditandai sebagai rekomendasi).
 
 ---
 
@@ -262,27 +267,36 @@ Prefix `/api/v1`. Semua endpoint (kecuali auth publik dan direktori jika dibuka)
 | Method | Path | Peran | Keterangan |
 |--------|------|-------|------------|
 | GET | `/auth/sso/login` | publik | Redirect ke IdP |
-| GET/POST | `/auth/sso/callback` | publik | Selesaikan SSO, terbitkan sesi |
-| POST | `/auth/staff/login` | publik | Login psikolog/dosen admin |
+| GET | `/auth/sso/callback` | publik | Selesaikan SSO (OIDC), terbitkan sesi; `POST` baru diperlukan bila adapter SAML dibuat |
+| POST | `/auth/staff/login` | publik | Login psikolog/dosen admin (`403 MFA_WAJIB` + `mfa_setup_token` bila MFA belum terdaftar) |
+| POST | `/auth/staff/mfa/mulai` · `/auth/staff/mfa/aktifkan` | publik (token setup) | Pendaftaran MFA TOTP (PBI-01 §6) |
+| POST | `/auth/staff/mfa/token` | Psi, Adm | Token setup MFA sukarela |
+| POST | `/auth/staff/password` | Psi, Adm | Ganti password (wajib bila `wajib_ganti_password`) |
 | POST | `/auth/refresh` · `/auth/logout` | semua | Rotasi/cabut token |
 | GET | `/auth/me` | semua | Identitas & peran |
 | GET · PATCH | `/me` | Mhs | Profil |
 | GET | `/me/export` | Mhs | Ekspor data milik sendiri (JSON) |
-| DELETE | `/me` | Mhs | Hapus data (soft delete + anonimisasi, lihat 05-security-privacy.md §7) |
+| DELETE | `/me` | Mhs | Hapus data (soft delete + anonimisasi; body `{ konfirmasi: "HAPUS" }`, lihat PBI-03) |
 | GET · POST · PATCH · DELETE | `/me/kontak-darurat[/:id]` | Mhs | Kontak darurat |
-| PUT | `/me/preferensi-minat` | Mhs | Untuk rekomendasi Circle |
-| POST | `/me/kunci-e2ee` | Mhs, Psi | Unggah kunci publik chat |
+| PUT | `/me/preferensi-minat` | Mhs | Untuk rekomendasi Circle _(belum dibuat — PBI-18)_ |
+| GET · PUT · POST | `/me/kunci-e2ee` | Mhs, Psi | Kunci publik chat E2EE (PBI-11) |
 
-### 8.2 Genta — PBI-05…09 (detail alur: `06-genta-sos-realtime.md`)
+### 8.2 Genta — PBI-05…09
+
+Detail alur & kode error: PBI-05 s.d. PBI-09 (06-genta-sos-realtime.md _(dokumen belum ada di repo ini)_).
 
 | Method | Path | Peran | Keterangan |
 |--------|------|-------|------------|
-| POST | `/genta/sos` | Mhs | Buat SOS `{ situasi, lokasi? }` — idempoten (dedupe SOS aktif) |
-| PATCH | `/genta/sos/:id/lokasi` | Mhs | Tambahkan lokasi setelah consent (jika awalnya ditolak) |
+| POST | `/genta/sos/konfirmasi` | Mhs | Token konfirmasi + pilihan situasi + hotline |
+| POST | `/genta/sos` | Mhs | Buat SOS `{ token_konfirmasi, situasi, konfirmasi: true, lokasi? }` — idempoten (SOS aktif dikembalikan) |
+| POST | `/genta/sos/:id/batal` | Mhs | Batalkan SOS yang belum diambil |
+| PATCH · DELETE | `/genta/sos/:id/lokasi` | Mhs | Bagikan/perbarui · cabut lokasi |
 | GET | `/genta/sos/aktif` | Mhs | Status SOS milik sendiri |
 | GET | `/psikolog/sos` | Psi | Antrean, urut `prioritas DESC, waktu ASC`, filter status |
 | POST | `/psikolog/sos/:id/ambil` | Psi | **Atomik**; 409 jika sudah diambil |
+| GET | `/psikolog/sos/:id` | Psi | Detail (identitas hanya untuk penangan) |
 | PATCH | `/psikolog/sos/:id/status` | Psi | `DITANGANI` / `SELESAI` + catatan |
+| GET | `/psikolog/sos/:id/lokasi` | Psi (penangan) | Lokasi terdekripsi, diaudit `SOS_LOKASI_READ` |
 | GET · PUT | `/admin/konfigurasi-sos` | Adm | Durasi eskalasi, hotline |
 | CRUD | `/admin/penerima-eskalasi` | Adm | Daftar penerima |
 
@@ -291,8 +305,8 @@ Prefix `/api/v1`. Semua endpoint (kecuali auth publik dan direktori jika dibuka)
 | Method | Path | Peran |
 |--------|------|-------|
 | GET · POST | `/admin/psikolog` | Adm |
-| PATCH | `/admin/psikolog/:id` | Adm |
-| POST | `/admin/psikolog/:id/aktifkan` · `/nonaktifkan` | Adm |
+| GET · PATCH | `/admin/psikolog/:id` | Adm |
+| POST | `/admin/psikolog/:id/aktifkan` · `/nonaktifkan` · `/reset-password` | Adm |
 | GET · POST · PATCH · DELETE | `/admin/jadwal-jaga[/:id]` | Adm |
 | GET | `/psikolog/jadwal-jaga` | Psi (milik sendiri) |
 
@@ -407,8 +421,8 @@ Slot alternatif (use case 5.b): kembalikan 3–5 slot terdekat psikolog yang sam
 
 ```ts
 // format blob: [1B versi][1B panjang keyId][keyId][12B IV][ciphertext][16B auth tag]
-encrypt(plain: Buffer | string, aad?: string): Buffer   // AES-256-GCM, IV acak per operasi
-decrypt(blob: Buffer, aad?: string): Buffer
+encrypt(plain: Buffer | string, aad: string): Buffer    // AES-256-GCM, IV acak per operasi; AAD WAJIB
+decrypt(blob: Buffer, aad: string): Buffer
 ```
 
 - `aad` (additional authenticated data) = `tabel:kolom:id_baris` supaya ciphertext tidak bisa dipindah antar baris.
@@ -445,8 +459,8 @@ Log **tidak** berisi isi data — hanya siapa, apa, kapan, dari mana, hasil.
 | Endpoint | Batas awal (usulan) |
 |----------|--------------------|
 | Global | 100 req/menit/IP — **aktif**: `ThrottlerGuard` global (sebelum JWT guard), storage Redis lintas instance, fallback memori lokal bila Redis mati; health check dikecualikan |
-| `/auth/*` | 10 req/menit/IP + lockout |
-| `POST /genta/sos` | Dedupe: SOS aktif < 10 menit dikembalikan, bukan dibuat ulang; maks 5/jam/akun |
+| `/auth/*` | Login staf 5/menit/IP + lockout bertahap per akun (aktif); awal SSO 120/menit/IP; MFA 5/menit |
+| `POST /genta/sos` | Dedupe: SOS **aktif** (berapa pun umurnya) dikembalikan, bukan dibuat ulang; maks `sos_maks_per_jam` (default 5) per akun |
 | `POST /curhat` | 10/jam/akun |
 | `/cek-mandiri` | 20/hari/akun |
 
@@ -459,7 +473,7 @@ Log **tidak** berisi isi data — hanya siapa, apa, kapan, dari mana, hasil.
 | Unit | Skor PHQ-9/GAD-7 (batas pita), EncryptionService, logika slot/bentrok, scoring rekomendasi Circle, RBAC guard |
 | Integrasi (Testcontainers) | Migrasi bersih dari nol; constraint DB (bentrok, consent, audit append-only); ambil SOS atomik (dua klien paralel → satu menang) |
 | E2E (Supertest) | Alur per PBI sesuai use case di proposal; RBAC lintas peran (SCRUM-221) |
-| Non-fungsional | Latensi notifikasi SOS < 5 dtk; load test (lihat `07-testing-qa.md`) |
+| Non-fungsional | Latensi notifikasi SOS < 5 dtk; load test (07-testing-qa.md _(dokumen belum ada di repo ini)_) |
 
 Target cakupan awal: ≥ 80 % pada `common/` dan modul `genta`, `booking`, `sesi`, `cek-mandiri`.
 
