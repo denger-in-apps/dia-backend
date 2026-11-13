@@ -391,4 +391,26 @@ describe('GentaService', () => {
     await expect(service.batalkan(mhs, sosRow.id_sos))
       .rejects.toMatchObject({ response: { kode: 'SOS_SUDAH_SELESAI' } });
   });
+
+  // QA PBI-06 (SCRUM-227): cakupan tambahan berbagi lokasi darurat.
+  it('returns the existing SOS when location update affects no rows', async () => {
+    aktif = { ...sosRow };
+    const originalQuery = client.query.getMockImplementation()!;
+    client.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('SET lokasi_izin = true')) return { rows: [] };
+      return originalQuery(sql, params);
+    });
+
+    const result = await service.buatSos(mhs, { ...dto, lokasi: { lat: 1, lng: 2 } });
+
+    expect(result).toMatchObject({ baru: false, sos: { id_sos: sosRow.id_sos } });
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it('rejects location withdrawal when SOS is not found', async () => {
+    pool.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.cabutLokasi(mhs, sosRow.id_sos))
+      .rejects.toMatchObject({ response: { kode: 'SOS_TIDAK_DITEMUKAN' } });
+  });
 });
