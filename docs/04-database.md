@@ -92,14 +92,15 @@ Struktur:
 ```
 apps/api/src/database/
 ├─ data-source.ts
+├─ sql/0001_init.sql            # DDL §8 (raw SQL, satu-satunya salinan)
 ├─ migrations/
-│  ├─ 0001_init_schema.ts        # menjalankan DDL §8 (raw SQL)
-│  ├─ 0002_roles_and_grants.ts   # role DB + GRANT/REVOKE
-│  └─ ...
-└─ seed/
-   ├─ run.ts
-   ├─ master.ts                  # kategori minat, template PHQ-9/GAD-7, sumber daya awal
-   └─ dev-fixtures.ts            # akun uji (hanya non-produksi)
+│  ├─ 1761500000000-InitialSchema.ts   # menjalankan sql/0001_init.sql
+│  ├─ 1761500001000-RolesAndGrants.ts  # role DB + GRANT/REVOKE
+│  └─ 17938…-*.ts                      # perubahan per PBI (lihat isi folder)
+├─ seed/
+│  ├─ dev-auth.ts                # akun uji (hanya NODE_ENV=development)
+│  └─ buat-admin.ts              # provisioning dosen admin (boleh di produksi)
+└─ tests/                        # unit test migrasi/seed (di luar migrations/ agar tidak dimuat TypeORM)
 ```
 
 `data-source.ts`:
@@ -184,7 +185,7 @@ GRANT SELECT ON v_laporan_genta_bulanan, v_laporan_cek_mandiri_bulanan, v_lapora
 
 ## 8. DDL Lengkap (`0001_init.sql`)
 
-Simpan sebagai `apps/api/src/database/sql/0001_init.sql` (juga salinan referensi di `infra/db/schema.sql`).
+Disimpan sebagai `apps/api/src/database/sql/0001_init.sql` (satu-satunya salinan; dibaca migrasi `1761500000000-InitialSchema`). DDL di bawah adalah skema **awal**; perubahan sesudahnya ada di `src/database/migrations/` (lihat §5).
 
 ```sql
 -- =====================================================================

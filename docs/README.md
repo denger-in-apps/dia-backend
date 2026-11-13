@@ -270,10 +270,12 @@ sertifikat self-signed development untuk lingkungan publik.
 - `npm run migration:revert` membatalkan migrasi terakhir.
 - `npm run migration:generate -- src/database/migrations/NamaMigrasi` membuat
   draft migrasi dari entity TypeORM.
+- Seed data master (kategori minat, template kuesioner, sumber daya; 04-database.md §7)
+  belum ada — kontennya menunggu persetujuan PO dan akan dibuat bersama PBI-15/17/19.
 
 Skema `0001_init.sql` mengikuti DDL di `04-database.md`; migrasi TypeORM
-membacanya dari `src/database/sql`. Salinan referensi tersedia di
-`infra/db/schema.sql`. Migrasi berikutnya membuat role `denger_app` dan
+membacanya dari `src/database/sql` (tidak ada salinan lain, agar tidak berbeda).
+Migrasi berikutnya membuat role `denger_app` dan
 `denger_report`; `APP_DB_PASSWORD` dan `REPORT_DB_PASSWORD` wajib diset untuk
 migrasi. Service `migrate` memakai `MIGRATION_DATABASE_URL` milik owner DB;
 service API hanya menerima `DATABASE_URL` untuk `denger_app` dan

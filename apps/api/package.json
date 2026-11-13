@@ -24,7 +24,6 @@
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts -t each",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
     "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
-    "seed": "ts-node src/database/seed/run.ts",
     "seed:dev-auth": "ts-node src/database/seed/dev-auth.ts",
     "admin:buat": "ts-node src/database/seed/buat-admin.ts"
   },
