@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -11,6 +11,31 @@ import { AccessTokenService } from '../../common/auth/access-token.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { bearerToken } from '../../common/auth/jwt-auth.guard';
 import { EVENT, NAMESPACE_PSIKOLOG, ROOM_SEMUA_PSIKOLOG, roomPsikolog } from './realtime.constants';
+
+/**
+ * Interval pemeriksaan ulang status akun untuk koneksi yang sudah terbuka (PBI-04, SCRUM-215):
+ * psikolog yang dinonaktifkan tidak boleh terus menerima data SOS sampai tokennya habis.
+ */
+function recheckIntervalMs(): number {
+  const value = Number(process.env.REALTIME_RECHECK_MS ?? 60_000);
+  return Number.isFinite(value) && value >= 1000 ? value : 60_000;
+}
+
+/**
+ * Kode alasan pemutusan dari galat `AccessTokenService.verifikasi`: `AKUN_TIDAK_AKTIF`
+ * (pesan string) atau `kode` pada body objek (mis. `PASSWORD_WAJIB_DIGANTI`).
+ */
+function kodePemutusan(error: unknown): string {
+  if (error instanceof HttpException) {
+    const body = error.getResponse();
+    if (body === 'AKUN_TIDAK_AKTIF') return body;
+    if (typeof body === 'object' && body !== null) {
+      const kode = (body as { kode?: unknown; message?: unknown }).kode ?? (body as { message?: unknown }).message;
+      if (typeof kode === 'string' && kode.length > 0) return kode;
+    }
+  }
+  return 'TOKEN_KEDALUWARSA';
+}
 
 export function allowedOrigins(): string[] {
   return (process.env.CORS_ORIGINS ?? '')
@@ -48,6 +73,7 @@ export class PsikologGateway implements OnGatewayInit, OnGatewayConnection, OnGa
 
   private readonly logger = new Logger(PsikologGateway.name);
   private readonly expiryTimers = new Map<string, NodeJS.Timeout>();
+  private readonly recheckTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly accessToken: AccessTokenService) {}
 
@@ -73,12 +99,31 @@ export class PsikologGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       socket.emit(EVENT.SESI_KEDALUWARSA, { kode: 'TOKEN_KEDALUWARSA' });
       socket.disconnect(true);
     }, sisaMs));
+    // Status akun diperiksa ulang selama koneksi hidup (aturan yang sama dengan HTTP).
+    this.recheckTimers.set(socket.id, setInterval(() => void this.periksaUlang(socket), recheckIntervalMs()));
   }
 
   handleDisconnect(socket: Socket): void {
     const timer = this.expiryTimers.get(socket.id);
     if (timer) clearTimeout(timer);
     this.expiryTimers.delete(socket.id);
+    const recheck = this.recheckTimers.get(socket.id);
+    if (recheck) clearInterval(recheck);
+    this.recheckTimers.delete(socket.id);
+  }
+
+  /** Putuskan koneksi bila akun tidak lagi memenuhi aturan akses (nonaktif, password sementara, dsb.). */
+  private async periksaUlang(socket: Socket): Promise<void> {
+    const token = socket.data.token as string | undefined;
+    try {
+      if (!token) throw new Error('token kosong');
+      const { user } = await this.accessToken.verifikasi(token);
+      if (user.role !== 'PSIKOLOG') throw new Error('role tidak diizinkan');
+    } catch (error) {
+      if (!socket.connected) return;
+      socket.emit(EVENT.SESI_KEDALUWARSA, { kode: kodePemutusan(error) });
+      socket.disconnect(true);
+    }
   }
 
   /** Kirim event ke psikolog tertentu. */
@@ -107,5 +152,6 @@ export class PsikologGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     }
     socket.data.user = user;
     socket.data.exp = exp;
+    socket.data.token = token;
   }
 }

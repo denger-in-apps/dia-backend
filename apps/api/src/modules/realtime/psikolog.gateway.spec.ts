@@ -18,7 +18,21 @@ describe('PsikologGateway (Socket.IO)', () => {
 
   beforeAll(async () => {
     const exp = () => Math.floor(Date.now() / 1000) + 900;
+    let revokeCalls = 0;
+    let resetCalls = 0;
     verifikasi = jest.fn(async (token: string) => {
+      // Aktif saat handshake, lalu dinonaktifkan admin (pemeriksaan berikutnya ditolak).
+      if (token === 'psi-revoke') {
+        revokeCalls++;
+        if (revokeCalls === 1) return { user: { id: PSI_A, role: 'PSIKOLOG' }, exp: exp() };
+        throw new ForbiddenException('AKUN_TIDAK_AKTIF');
+      }
+      // Password di-reset admin setelah tersambung: verifikasi berikutnya menolak (kontrak tim).
+      if (token === 'psi-reset') {
+        resetCalls++;
+        if (resetCalls === 1) return { user: { id: PSI_A, role: 'PSIKOLOG' }, exp: exp() };
+        throw new ForbiddenException({ kode: 'PASSWORD_WAJIB_DIGANTI', pesan: 'Ganti password sementara terlebih dahulu' });
+      }
       if (token === 'psi-a') return { user: { id: PSI_A, role: 'PSIKOLOG' }, exp: exp() };
       if (token === 'psi-b') return { user: { id: PSI_B, role: 'PSIKOLOG' }, exp: exp() };
       if (token === 'psi-short') return { user: { id: PSI_A, role: 'PSIKOLOG' }, exp: Math.floor(Date.now() / 1000) + 1 };
@@ -111,4 +125,41 @@ describe('PsikologGateway (Socket.IO)', () => {
     await expect(expired).resolves.toEqual({ kode: 'TOKEN_KEDALUWARSA' });
     await disconnected;
   }, 10_000);
+
+  describe('pemeriksaan ulang status akun selama koneksi terbuka (PBI-04, SCRUM-215)', () => {
+    const previous = process.env.REALTIME_RECHECK_MS;
+    beforeAll(() => { process.env.REALTIME_RECHECK_MS = '1000'; });
+    afterAll(() => {
+      if (previous === undefined) delete process.env.REALTIME_RECHECK_MS;
+      else process.env.REALTIME_RECHECK_MS = previous;
+    });
+
+    it('memutus psikolog yang dinonaktifkan setelah tersambung dengan kode AKUN_TIDAK_AKTIF', async () => {
+      const socket = connect({ token: 'psi-revoke' });
+      const notice = new Promise((resolve) => socket.once(EVENT.SESI_KEDALUWARSA, resolve));
+      const disconnected = new Promise((resolve) => socket.once('disconnect', resolve));
+      await connected(socket);
+      await expect(notice).resolves.toEqual({ kode: 'AKUN_TIDAK_AKTIF' });
+      await disconnected;
+      expect(verifikasi).toHaveBeenCalledWith('psi-revoke');
+    }, 10_000);
+
+    it('memutus psikolog yang password-nya di-reset admin dengan kode PASSWORD_WAJIB_DIGANTI', async () => {
+      const socket = connect({ token: 'psi-reset' });
+      const notice = new Promise((resolve) => socket.once(EVENT.SESI_KEDALUWARSA, resolve));
+      const disconnected = new Promise((resolve) => socket.once('disconnect', resolve));
+      await connected(socket);
+      await expect(notice).resolves.toEqual({ kode: 'PASSWORD_WAJIB_DIGANTI' });
+      await disconnected;
+    }, 10_000);
+
+    it('mempertahankan koneksi psikolog yang tetap aktif setelah pemeriksaan ulang', async () => {
+      verifikasi.mockClear();
+      const socket = connect({ token: 'psi-b' });
+      await connected(socket);
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+      expect(socket.connected).toBe(true);
+      expect(verifikasi.mock.calls.filter(([t]) => t === 'psi-b').length).toBeGreaterThanOrEqual(2);
+    }, 10_000);
+  });
 });
