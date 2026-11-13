@@ -185,6 +185,10 @@ Rentang divalidasi di API dan ditegakkan ulang dengan `CHECK` di database. Batas
 PBI-05 sebelumnya berupa env (`SOS_MAKS_PER_JAM`, dst.) dan kini dipindah ke sini;
 `SOS_KONFIRMASI_TTL_DETIK` dan `SOS_JEDA_MINIMAL_MS` tetap env karena bersifat teknis.
 
+Migrasi `1793800200000-PerbaikiLabelHotline` memperbaiki default `hotline_label` dari
+`0001_init.sql` yang tersimpan rusak (`â€”`, UTF-8 ter-encode dua kali). Baris yang masih
+bernilai rusak diperbaiki; label yang sudah diubah admin tidak disentuh.
+
 Setiap perubahan dicatat `KONFIGURASI_SOS_UBAH` di audit log beserta nilai sebelum/sesudah
 field yang berubah, dan `diubah_oleh` diisi admin pengubah.
 
