@@ -358,4 +358,37 @@ describe('GentaService', () => {
     config = { ...config, hotline_label: 'Hotline Kampus 1500-xxx' };
     await expect(service.statusAktif(mhs)).resolves.toMatchObject({ hotline: { label: 'Hotline Kampus 1500-xxx', aktif: true } });
   });
+
+  // QA PBI-05 (SCRUM-224): cakupan tambahan alur SOS mahasiswa.
+  it('handles a missing situation label in SOS notification', async () => {
+    const originalQuery = client.query.getMockImplementation()!;
+    client.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('INSERT INTO log_sos')) {
+        return { rows: [{ ...sosRow, situasi: null }] };
+      }
+      return originalQuery(sql, params);
+    });
+
+    await service.buatSos(mhs, dto);
+
+    expect(notifikasi.sosBaru).toHaveBeenCalledWith(
+      expect.objectContaining({ situasi: null, situasi_label: null }),
+    );
+  });
+
+  it('returns active SOS and hotline for the student', async () => {
+    const result = await service.statusAktif(mhs);
+
+    expect(result.sos).toBeNull();
+    expect(result.hotline).toBeDefined();
+  });
+
+  it('rejects cancellation when SOS is already completed', async () => {
+    pool.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ status_penanganan: 'SELESAI' }] });
+
+    await expect(service.batalkan(mhs, sosRow.id_sos))
+      .rejects.toMatchObject({ response: { kode: 'SOS_SUDAH_SELESAI' } });
+  });
 });
