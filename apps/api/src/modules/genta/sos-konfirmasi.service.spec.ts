@@ -17,12 +17,12 @@ describe('SosKonfirmasiService', () => {
     signOptions: { algorithm: 'RS256', expiresIn: 900, issuer: 'dia-backend', audience: 'dia-api' },
     verifyOptions: { algorithms: ['RS256'], issuer: 'dia-backend', audience: 'dia-api' },
   });
-  let redis: { status: string; set: jest.Mock };
+  let redis: { status: string; set: jest.Mock; exists: jest.Mock };
   let service: SosKonfirmasiService;
 
   beforeEach(() => {
     process.env.SOS_JEDA_MINIMAL_MS = '0';
-    redis = { status: 'ready', set: jest.fn().mockResolvedValue('OK') };
+    redis = { status: 'ready', set: jest.fn().mockResolvedValue('OK'), exists: jest.fn().mockResolvedValue(0) };
     service = new SosKonfirmasiService(jwt, redis as never);
   });
 
@@ -85,5 +85,15 @@ describe('SosKonfirmasiService', () => {
 
     redis.set.mockRejectedValueOnce(new Error('redis down'));
     expect(await service.pakai('jti-2')).toBe(true);
+  });
+
+  it('checks prior use read-only (fail-open) before the SOS is stored', async () => {
+    expect(await service.sudahDipakai('jti-1')).toBe(false);
+    expect(redis.exists).toHaveBeenCalledWith('genta:konfirmasi:jti-1');
+    expect(redis.set).not.toHaveBeenCalled();
+    redis.exists.mockResolvedValueOnce(1);
+    expect(await service.sudahDipakai('jti-1')).toBe(true);
+    redis.exists.mockRejectedValueOnce(new Error('redis down'));
+    expect(await service.sudahDipakai('jti-1')).toBe(false);
   });
 });

@@ -35,13 +35,13 @@ describe('GentaService', () => {
   const dto = { token_konfirmasi: 'token', situasi: 'SERANGAN_PANIK' as const, konfirmasi: true as const };
   let pool: { query: jest.Mock; connect: jest.Mock };
   let client: { query: jest.Mock; release: jest.Mock };
-  let konfirmasi: { terbitkan: jest.Mock; verifikasi: jest.Mock; pakai: jest.Mock };
+  let konfirmasi: { terbitkan: jest.Mock; verifikasi: jest.Mock; pakai: jest.Mock; sudahDipakai: jest.Mock };
   let service: GentaService;
   let riwayat: { per_jam: number; iseng: number; batal: number };
   let aktif: unknown;
   let lokasi: SosLokasiService;
-  let notifikasi: { sosBaru: jest.Mock };
-  let eskalasi: { jadwalkan: jest.Mock; tindakLanjutPenerima: jest.Mock };
+  let notifikasi: { sosBaru: jest.Mock; sosDiperbarui: jest.Mock };
+  let eskalasi: { jadwalkan: jest.Mock; tindakLanjutPenerima: jest.Mock; batalkan: jest.Mock };
   let config: KonfigurasiSos;
 
   beforeAll(() => {
@@ -82,12 +82,14 @@ describe('GentaService', () => {
       terbitkan: jest.fn().mockResolvedValue({ token_konfirmasi: 't', berlaku_detik: 120 }),
       verifikasi: jest.fn().mockResolvedValue({ jti: 'jti-1' }),
       pakai: jest.fn().mockResolvedValue(true),
+      sudahDipakai: jest.fn().mockResolvedValue(false),
     };
-    notifikasi = { sosBaru: jest.fn().mockResolvedValue({ penerima: 1, tanpa_jaga: false }) };
+    notifikasi = { sosBaru: jest.fn().mockResolvedValue({ penerima: 1, tanpa_jaga: false }), sosDiperbarui: jest.fn() };
     config = { ...KONFIGURASI_DEFAULT };
     eskalasi = {
       jadwalkan: jest.fn().mockResolvedValue({ terjadwal: true, delay_ms: 180_000 }),
       tindakLanjutPenerima: jest.fn().mockResolvedValue(false),
+      batalkan: jest.fn().mockResolvedValue(undefined),
     };
     service = new GentaService(
       pool as unknown as Pool, konfirmasi as unknown as SosKonfirmasiService, lokasi,
@@ -115,6 +117,16 @@ describe('GentaService', () => {
     expect(insertCall()![1].slice(1)).toEqual([mhs, 'SERANGAN_PANIK', 'TINGGI', false, false, null]);
     expect(konfirmasi.pakai).toHaveBeenCalledWith('jti-1');
     expect(client.query).toHaveBeenCalledWith('COMMIT');
+    // Token ditandai terpakai hanya setelah SOS ter-commit.
+    const commitOrder = client.query.mock.invocationCallOrder[client.query.mock.calls.findIndex(([sql]) => sql === 'COMMIT')];
+    expect(konfirmasi.pakai.mock.invocationCallOrder[0]).toBeGreaterThan(commitOrder);
+  });
+
+  it('does not burn the confirmation token when the SOS is rejected (429)', async () => {
+    riwayat.per_jam = 5;
+    await expect(service.buatSos(mhs, dto)).rejects.toBeInstanceOf(HttpException);
+    expect(konfirmasi.sudahDipakai).toHaveBeenCalledWith('jti-1');
+    expect(konfirmasi.pakai).not.toHaveBeenCalled();
   });
 
   it('does not create an SOS when the confirmation is invalid', async () => {
@@ -132,7 +144,7 @@ describe('GentaService', () => {
   });
 
   it('rejects a reused confirmation token', async () => {
-    konfirmasi.pakai.mockResolvedValue(false);
+    konfirmasi.sudahDipakai.mockResolvedValue(true);
     await expect(service.buatSos(mhs, dto)).rejects.toBeInstanceOf(UnprocessableEntityException);
     expect(insertCall()).toBeUndefined();
     expect(client.query).toHaveBeenCalledWith('ROLLBACK');
@@ -182,6 +194,9 @@ describe('GentaService', () => {
       expect.stringContaining("WHERE id_sos = $1 AND id_mahasiswa = $2 AND status_penanganan = 'BARU'"),
       [sosRow.id_sos, mhs],
     );
+    // Dashboard psikolog diperbarui dan timer eskalasi dihapus.
+    expect(notifikasi.sosDiperbarui).toHaveBeenCalledWith({ id_sos: sosRow.id_sos, status_penanganan: 'SELESAI', id_psikolog: null });
+    expect(eskalasi.batalkan).toHaveBeenCalledWith(sosRow.id_sos);
   });
 
   it('explains why a cancellation is refused', async () => {
@@ -190,6 +205,7 @@ describe('GentaService', () => {
 
     pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
     await expect(service.batalkan(mhs, sosRow.id_sos)).rejects.toBeInstanceOf(NotFoundException);
+  expect(notifikasi.sosDiperbarui).not.toHaveBeenCalled();
   });
 
   it('stores a shared location encrypted and bound to the new SOS id', async () => {

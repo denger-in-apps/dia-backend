@@ -67,7 +67,17 @@ export class SosKonfirmasiService {
     return { jti: claims.jti };
   }
 
-  /** Menandai token terpakai. `false` berarti token sudah pernah dipakai. */
+  /** `true` bila token sudah pernah dipakai untuk membuat SOS. Fail-open saat Redis tidak tersedia. */
+  async sudahDipakai(jti: string): Promise<boolean> {
+    try {
+      await ensureRedisConnection(this.redis);
+      return (await this.redis.exists(`genta:konfirmasi:${jti}`)) === 1;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Menandai token terpakai (setelah SOS tersimpan). `false` berarti token sudah pernah dipakai. */
   async pakai(jti: string): Promise<boolean> {
     try {
       await ensureRedisConnection(this.redis);

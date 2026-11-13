@@ -24,7 +24,7 @@ Semua endpoint: prefix `/api/v1`, Bearer token, hanya role `MAHASISWA`.
 | POST | `/genta/sos/konfirmasi` | Token konfirmasi + `situasi_opsi[]` + `hotline` |
 | POST | `/genta/sos` | Buat SOS |
 | GET | `/genta/sos/aktif` | SOS milik sendiri yang masih berjalan (`sos: null` bila tidak ada) + hotline |
-| POST | `/genta/sos/:id/batal` | Batalkan SOS yang **belum diambil** psikolog (salah tekan) |
+| POST | `/genta/sos/:id/batal` | Batalkan SOS yang **belum diambil** psikolog (salah tekan). Disiarkan `sos:diperbarui` (`SELESAI`) ke dashboard psikolog dan timer eskalasi dihapus |
 
 Kode `situasi` dan prioritas yang ditetapkan server (klien tidak dapat mengirim prioritas):
 
@@ -47,7 +47,7 @@ tanda bagi psikolog; mahasiswa selalu menerima info hotline.
 | Identitas | JWT + guard: mahasiswa aktif terverifikasi akademik | `401` / `403` |
 | Konfirmasi dua langkah | Token RS256 audience `dia-genta-konfirmasi`, terikat ke akun, berlaku `SOS_KONFIRMASI_TTL_DETIK` (120 dtk). Tidak bisa dipertukarkan dengan access token | `422 KONFIRMASI_TIDAK_VALID` |
 | Jeda manusiawi | Minimal `SOS_JEDA_MINIMAL_MS` (800 ms) antara konfirmasi dan kirim, menahan klik otomatis/skrip | `422 KONFIRMASI_TERLALU_CEPAT` |
-| Sekali pakai | `jti` token disimpan di Redis (NX). Bila Redis mati, pengecekan ini dilewati (fail-open) karena dedupe DB tetap berlaku | `422 KONFIRMASI_SUDAH_DIPAKAI` |
+| Sekali pakai | `jti` diperiksa di Redis sebelum SOS dibuat dan baru ditandai terpakai **setelah** SOS ter-commit, sehingga SOS yang ditolak (mis. `429`) tidak menghanguskan token. Bila Redis mati, pengecekan dilewati (fail-open) karena dedupe DB tetap berlaku | `422 KONFIRMASI_SUDAH_DIPAKAI` |
 | Pernyataan eksplisit | `konfirmasi: true` dan `situasi` dari daftar tetap | `400` |
 | Dedupe | Advisory lock per mahasiswa + indeks unik parsial `uq_log_sos_aktif_per_mahasiswa`. SOS aktif dikembalikan, bukan dibuat ulang | `200` dengan SOS lama |
 | Frekuensi | Maks. `sos_maks_per_jam` (5) SOS baru per akun per jam | `429 SOS_TERLALU_SERING` + `detail.hotline` |

@@ -98,7 +98,10 @@ export class GentaService {
         return { baru: false, sos, hotline };
       }
 
-      if (!(await this.konfirmasi.pakai(jti))) {
+      // Hanya diperiksa di sini; token baru ditandai terpakai SETELAH COMMIT agar SOS yang
+      // gagal tersimpan (mis. 429 / DB error) tidak menghanguskan token mahasiswa.
+      // Permintaan paralel dengan token sama diserialisasi advisory lock di atas.
+      if (await this.konfirmasi.sudahDipakai(jti)) {
         throw new UnprocessableEntityException({
           kode: 'KONFIRMASI_SUDAH_DIPAKAI',
           pesan: 'Konfirmasi sudah dipakai, ulangi konfirmasi',
@@ -137,6 +140,7 @@ export class GentaService {
         ],
       );
       await client.query('COMMIT');
+      await this.konfirmasi.pakai(jti);
       const sos = inserted.rows[0];
       // Setelah commit: jalankan timer eskalasi (PBI-09) dan kabari psikolog seketika (FR-PSI-03).
       // Tidak di-await agar respons ke mahasiswa tidak tertunda; keduanya tidak pernah melempar
@@ -187,7 +191,13 @@ export class GentaService {
        RETURNING ${SOS_COLUMNS}`,
       [idSos, idMahasiswa],
     );
-    if (result.rows[0]) return result.rows[0];
+    if (result.rows[0]) {
+      // Antrean dashboard psikolog diperbarui seketika; timer eskalasi tidak lagi relevan
+      // (UPDATE eskalasi bersyarat tetap menjadi jaminan bila penghapusan timer gagal).
+      this.notifikasi.sosDiperbarui({ id_sos: idSos, status_penanganan: 'SELESAI', id_psikolog: null });
+      void this.eskalasi.batalkan(idSos);
+      return result.rows[0];
+    }
 
     const existing = await this.pool.query<{ status_penanganan: StatusSos }>(
       `SELECT status_penanganan FROM log_sos WHERE id_sos = $1 AND id_mahasiswa = $2`,
