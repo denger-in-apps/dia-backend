@@ -40,7 +40,7 @@ describe('GentaService', () => {
   let riwayat: { per_jam: number; iseng: number; batal: number };
   let aktif: unknown;
   let lokasi: SosLokasiService;
-  let notifikasi: { sosBaru: jest.Mock; sosDiperbarui: jest.Mock };
+  let notifikasi: { sosBaru: jest.Mock; sosDiperbarui: jest.Mock; lokasiDiperbarui: jest.Mock };
   let eskalasi: { jadwalkan: jest.Mock; tindakLanjutPenerima: jest.Mock; batalkan: jest.Mock };
   let config: KonfigurasiSos;
 
@@ -84,7 +84,7 @@ describe('GentaService', () => {
       pakai: jest.fn().mockResolvedValue(true),
       sudahDipakai: jest.fn().mockResolvedValue(false),
     };
-    notifikasi = { sosBaru: jest.fn().mockResolvedValue({ penerima: 1, tanpa_jaga: false }), sosDiperbarui: jest.fn() };
+    notifikasi = { sosBaru: jest.fn().mockResolvedValue({ penerima: 1, tanpa_jaga: false }), sosDiperbarui: jest.fn(), lokasiDiperbarui: jest.fn() };
     config = { ...KONFIGURASI_DEFAULT };
     eskalasi = {
       jadwalkan: jest.fn().mockResolvedValue({ terjadwal: true, delay_ms: 180_000 }),
@@ -229,6 +229,32 @@ describe('GentaService', () => {
       expect.stringContaining('SET lokasi_izin = true'), [sosRow.id_sos, mhs, expect.any(Buffer)],
     );
     expect(insertCall()).toBeUndefined();
+    expect(notifikasi.lokasiDiperbarui).toHaveBeenCalledWith(undefined, expect.objectContaining({ lokasi_tersedia: true }));
+  });
+
+  it('notifies the handling psychologist of a location update without coordinates or leaking its id', async () => {
+    const idPsi = '22222222-2222-4222-8222-222222222222';
+    pool.query.mockResolvedValueOnce({
+      rows: [{ ...sosRow, status_penanganan: 'DIAMBIL', lokasi_izin: true, lokasi_diperbarui_at: new Date(), id_psikolog: idPsi }],
+    });
+    const hasil = await service.bagikanLokasi(mhs, sosRow.id_sos, { lat: -6.2, lng: 106.8 });
+    expect(hasil).not.toHaveProperty('id_psikolog');
+    const [penerima, payload] = notifikasi.lokasiDiperbarui.mock.calls[0];
+    expect(penerima).toBe(idPsi);
+    expect(payload).toEqual({ id_sos: sosRow.id_sos, lokasi_tersedia: true, lokasi_diperbarui_at: expect.any(String) });
+    expect(JSON.stringify(payload)).not.toContain('106.8');
+  });
+
+  it('notifies on withdrawal only while the SOS is still running', async () => {
+    pool.query.mockResolvedValueOnce({ rows: [{ ...sosRow, lokasi_izin: false, id_psikolog: null, aktif: true }] });
+    const hasil = await service.cabutLokasi(mhs, sosRow.id_sos);
+    expect(hasil).not.toHaveProperty('aktif');
+    expect(notifikasi.lokasiDiperbarui).toHaveBeenCalledWith(null, expect.objectContaining({ lokasi_tersedia: false }));
+
+    notifikasi.lokasiDiperbarui.mockClear();
+    pool.query.mockResolvedValueOnce({ rows: [{ ...sosRow, status_penanganan: 'SELESAI', id_psikolog: 'x', aktif: false }] });
+    expect(await service.cabutLokasi(mhs, sosRow.id_sos)).not.toHaveProperty('id_psikolog');
+    expect(notifikasi.lokasiDiperbarui).not.toHaveBeenCalled();
   });
 
   it('shares a location later only on an active SOS owned by the student', async () => {

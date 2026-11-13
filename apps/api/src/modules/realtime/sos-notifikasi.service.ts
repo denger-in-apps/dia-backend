@@ -35,6 +35,13 @@ export interface SosEskalasiPayload {
   sumber: string;
 }
 
+/** Payload `sos:lokasi`. */
+export interface SosLokasiPayload {
+  id_sos: string;
+  lokasi_tersedia: boolean;
+  lokasi_diperbarui_at: string | null;
+}
+
 export interface HasilNotifikasi {
   penerima: number;
   /** `true` bila tidak ada psikolog terjadwal jaga sehingga dikirim ke semua psikolog aktif. */
@@ -112,6 +119,19 @@ export class SosNotifikasiService {
       this.gateway.kirimKeSemuaPsikolog(EVENT.SOS_DIPERBARUI, payload);
     } catch (error) {
       this.logger.error(`Gagal menyiarkan pembaruan SOS ${payload.id_sos}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Lokasi SOS berubah: penangan dikabari secara tertarget; kasus di antrean disiarkan ke
+   * semua psikolog (hanya flag `lokasi_tersedia`). Tidak pernah memuat koordinat.
+   */
+  lokasiDiperbarui(idPsikolog: string | null, payload: SosLokasiPayload): void {
+    try {
+      if (idPsikolog) this.gateway.kirimKePsikolog([idPsikolog], EVENT.SOS_LOKASI, payload);
+      else this.gateway.kirimKeSemuaPsikolog(EVENT.SOS_LOKASI, payload);
+    } catch (error) {
+      this.logger.error(`Gagal menyiarkan lokasi SOS ${payload.id_sos}: ${(error as Error).message}`);
     }
   }
 

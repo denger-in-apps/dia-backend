@@ -45,6 +45,18 @@ tampilan.
 Kasus diambil psikolog melalui dashboard penanganan SOS (SCRUM-232); setelah itu
 `log_sos.id_psikolog` terisi dan lokasi dapat dibaca penangan tersebut.
 
+## Pemberitahuan ke psikolog
+
+Setiap kali mahasiswa membagikan, memperbarui, atau mencabut lokasi pada SOS yang masih
+berjalan, server menyiarkan `sos:lokasi` `{ id_sos, lokasi_tersedia, lokasi_diperbarui_at }`
+(namespace `/psikolog`):
+
+- kasus sudah diambil → hanya ke psikolog penangan, yang lalu memanggil
+  `GET /psikolog/sos/:id/lokasi` (diaudit `SOS_LOKASI_READ`);
+- kasus masih di antrean → ke semua psikolog, agar flag `lokasi_tersedia` di antrean akurat.
+
+Koordinat **tidak pernah** ikut disiarkan, dan `id_psikolog` tidak dikembalikan ke mahasiswa.
+
 ## Penyimpanan
 
 Koordinat disimpan sebagai JSON `{ lat, lng, akurasi_m, dicatat_at }` yang dienkripsi

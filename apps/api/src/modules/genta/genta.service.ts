@@ -39,6 +39,9 @@ export interface SosMahasiswa {
   waktu_selesai: Date | null;
 }
 
+/** Baris SOS + penangan (hanya untuk internal; `id_psikolog` tidak dikembalikan ke mahasiswa). */
+type SosDenganPenangan = SosMahasiswa & { id_psikolog: string | null };
+
 export interface HasilBuatSos {
   /** `false` bila SOS aktif sudah ada dan dikembalikan (idempoten), bukan dibuat ulang. */
   baru: boolean;
@@ -91,11 +94,9 @@ export class GentaService {
       const aktif = await this.sosAktif(client, idMahasiswa);
       if (aktif) {
         // Retry yang membawa lokasi tetap menyimpan lokasi pada SOS yang sama.
-        const sos = dto.lokasi
-          ? await this.simpanLokasi(client, idMahasiswa, aktif.id_sos, dto.lokasi) ?? aktif
-          : aktif;
+        const diperbarui = dto.lokasi ? await this.simpanLokasi(client, idMahasiswa, aktif.id_sos, dto.lokasi) : null;
         await client.query('COMMIT');
-        return { baru: false, sos, hotline };
+        return { baru: false, sos: diperbarui ? this.kabariLokasi(diperbarui) : aktif, hotline };
       }
 
       // Hanya diperiksa di sini; token baru ditandai terpakai SETELAH COMMIT agar SOS yang
@@ -220,21 +221,25 @@ export class GentaService {
    */
   async bagikanLokasi(idMahasiswa: string, idSos: string, lokasi: LokasiDto): Promise<SosMahasiswa> {
     const sos = await this.simpanLokasi(this.pool, idMahasiswa, idSos, lokasi);
-    if (sos) return sos;
+    if (sos) return this.kabariLokasi(sos);
     throw await this.sosTidakBisaDiubah(idMahasiswa, idSos);
   }
 
   /** Mencabut izin lokasi: koordinat dihapus, psikolog tidak lagi dapat melihatnya. */
   async cabutLokasi(idMahasiswa: string, idSos: string): Promise<SosMahasiswa> {
-    const result = await this.pool.query<SosMahasiswa>(
+    const result = await this.pool.query<SosDenganPenangan>(
       `UPDATE log_sos
        SET lokasi_izin = false, koordinat_lokasi_enc = NULL, lokasi_diperbarui_at = now()
        WHERE id_sos = $1 AND id_mahasiswa = $2
-       RETURNING ${SOS_COLUMNS}`,
+       RETURNING ${SOS_COLUMNS}, id_psikolog::text AS id_psikolog, status_penanganan IN ${SQL_STATUS_SOS_AKTIF} AS aktif`,
       [idSos, idMahasiswa],
     );
-    if (!result.rows[0]) throw new NotFoundException({ kode: 'SOS_TIDAK_DITEMUKAN', pesan: 'SOS tidak ditemukan' });
-    return result.rows[0];
+    const row = result.rows[0] as (SosDenganPenangan & { aktif?: boolean }) | undefined;
+    if (!row) throw new NotFoundException({ kode: 'SOS_TIDAK_DITEMUKAN', pesan: 'SOS tidak ditemukan' });
+    const { aktif, ...sos } = row;
+    if (aktif) return this.kabariLokasi(sos);
+    const { id_psikolog: _p, ...untukMahasiswa } = sos;
+    return untukMahasiswa;
   }
 
   private async simpanLokasi(
@@ -242,15 +247,30 @@ export class GentaService {
     idMahasiswa: string,
     idSos: string,
     lokasi: LokasiDto,
-  ): Promise<SosMahasiswa | null> {
-    const result = await executor.query<SosMahasiswa>(
+  ): Promise<SosDenganPenangan | null> {
+    const result = await executor.query<SosDenganPenangan>(
       `UPDATE log_sos
        SET lokasi_izin = true, koordinat_lokasi_enc = $3, lokasi_diperbarui_at = now()
        WHERE id_sos = $1 AND id_mahasiswa = $2 AND status_penanganan IN ${SQL_STATUS_SOS_AKTIF}
-       RETURNING ${SOS_COLUMNS}`,
+       RETURNING ${SOS_COLUMNS}, id_psikolog::text AS id_psikolog`,
       [idSos, idMahasiswa, this.lokasi.enkripsi(idSos, lokasi)],
     );
     return result.rows[0] ?? null;
+  }
+
+  /**
+   * Kabari psikolog bahwa lokasi berubah/dicabut (PBI-06): penangan kasus secara tertarget,
+   * atau semua psikolog bila kasus masih di antrean (flag `lokasi_tersedia`). Koordinat tidak
+   * pernah ikut disiarkan; psikolog penangan mengambilnya lewat endpoint lokasi yang diaudit.
+   */
+  private kabariLokasi(sos: SosDenganPenangan): SosMahasiswa {
+    const { id_psikolog, ...untukMahasiswa } = sos;
+    this.notifikasi.lokasiDiperbarui(id_psikolog, {
+      id_sos: sos.id_sos,
+      lokasi_tersedia: sos.lokasi_izin,
+      lokasi_diperbarui_at: sos.lokasi_diperbarui_at ? new Date(sos.lokasi_diperbarui_at).toISOString() : null,
+    });
+    return untukMahasiswa;
   }
 
   private async sosTidakBisaDiubah(idMahasiswa: string, idSos: string): Promise<Error> {

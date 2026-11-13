@@ -10,6 +10,8 @@ export const ROOM_SEMUA_PSIKOLOG = 'psikolog:semua';
 export const EVENT = {
   SOS_BARU: 'sos:baru',
   SOS_DIPERBARUI: 'sos:diperbarui',
+  /** Lokasi SOS dibagikan/diperbarui/dicabut mahasiswa (PBI-06); tanpa koordinat. */
+  SOS_LOKASI: 'sos:lokasi',
   SOS_ESKALASI: 'sos:eskalasi',
   SESI_KEDALUWARSA: 'sesi:kedaluwarsa',
   /** Booking konseling baru untuk psikolog ini (PBI-10). */

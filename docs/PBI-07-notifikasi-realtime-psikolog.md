@@ -35,6 +35,7 @@ socket.on('connect_error', (err) => { /* err.message === 'TIDAK_TERAUTENTIKASI' 
 |---|---|---|
 | `sos:baru` | Psikolog yang sedang jaga | `{ id_sos, prioritas, situasi, situasi_label, waktu_kejadian, lokasi_tersedia, perlu_verifikasi, tanpa_jaga }` |
 | `sos:diperbarui` | Semua psikolog terhubung | `{ id_sos, status_penanganan, id_psikolog }` (dipakai dashboard SCRUM-232) |
+| `sos:lokasi` | Psikolog penangan (kasus diambil) atau semua psikolog (kasus di antrean) | `{ id_sos, lokasi_tersedia, lokasi_diperbarui_at }` — tanpa koordinat (PBI-06) |
 | `sesi:kedaluwarsa` | Socket bersangkutan | `{ kode: 'TOKEN_KEDALUWARSA' }` |
 
 Payload **tidak memuat identitas mahasiswa**. Notifikasi realtime dan push dapat
