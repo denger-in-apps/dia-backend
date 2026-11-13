@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException, UnprocessableEntityException } fr
 import { Pool } from 'pg';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { PsikologGateway } from '../realtime/psikolog.gateway';
+import { SesiGateway } from '../sesi/sesi.gateway';
 import { BookingService } from './booking.service';
 
 describe('BookingService', () => {
@@ -24,6 +25,7 @@ describe('BookingService', () => {
   let client: { query: jest.Mock; release: jest.Mock };
   let encryption: { encrypt: jest.Mock; decrypt: jest.Mock };
   let gateway: { kirimKePsikolog: jest.Mock };
+  let ruangSesi: { siarkanStatus: jest.Mock };
   let slotSahResult: unknown[];
   let alternatifRows: unknown[];
   let jumlahAktif: number;
@@ -56,10 +58,12 @@ describe('BookingService', () => {
       decrypt: jest.fn(() => Buffer.from('Sulit tidur menjelang ujian')),
     };
     gateway = { kirimKePsikolog: jest.fn() };
+    ruangSesi = { siarkanStatus: jest.fn() };
     service = new BookingService(
       pool as unknown as Pool,
       encryption as unknown as EncryptionService,
       gateway as unknown as PsikologGateway,
+      ruangSesi as unknown as SesiGateway,
     );
   });
 

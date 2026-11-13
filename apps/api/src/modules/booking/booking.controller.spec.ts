@@ -24,6 +24,8 @@ describe('BookingController', () => {
       buat: jest.fn().mockResolvedValue({ id_sesi: 's' }),
       daftar: jest.fn().mockResolvedValue([]),
       detail: jest.fn().mockResolvedValue({ id_sesi: 's' }),
+      ubahJadwal: jest.fn().mockResolvedValue({ id_sesi: 's' }),
+      batal: jest.fn().mockResolvedValue({ id_sesi: 's' }),
     };
     const moduleRef = await Test.createTestingModule({
       controllers: [BookingController, DirektoriPsikologController],
@@ -74,6 +76,23 @@ describe('BookingController', () => {
       .get(`/api/v1/psikolog/${idPsi}/slot`).set('Authorization', bearer('MAHASISWA')).expect(400);
     await request(app.getHttpServer())
       .get('/api/v1/psikolog/abc/slot?tanggal=2026-12-01').set('Authorization', bearer('MAHASISWA')).expect(400);
+  });
+
+  it('reschedules and cancels own bookings with validated bodies', async () => {
+    const id = '44444444-4444-4444-8444-444444444444';
+    const server = app.getHttpServer();
+    await request(server).patch(`/api/v1/booking/${id}/jadwal`).set('Authorization', bearer('MAHASISWA'))
+      .send({ waktu_mulai: '2026-12-02T10:00:00+07:00' }).expect(200);
+    expect(booking.ubahJadwal).toHaveBeenCalledWith(TEST_USERS.MAHASISWA.id, id, { waktu_mulai: '2026-12-02T10:00:00+07:00' });
+    await request(server).patch(`/api/v1/booking/${id}/jadwal`).set('Authorization', bearer('MAHASISWA'))
+      .send({ waktu_mulai: '2026-12-02T10:00:00+07:00', id_psikolog: id }).expect(400);
+
+    await request(server).post(`/api/v1/booking/${id}/batal`).set('Authorization', bearer('MAHASISWA'))
+      .send({ alasan: '  Sakit  ' }).expect(200);
+    expect(booking.batal).toHaveBeenCalledWith(TEST_USERS.MAHASISWA.id, id, { alasan: 'Sakit' });
+    await request(server).post(`/api/v1/booking/${id}/batal`).set('Authorization', bearer('PSIKOLOG')).send({}).expect(403);
+    await request(server).post(`/api/v1/booking/${id}/batal`).set('Authorization', bearer('MAHASISWA'))
+      .send({ alasan: 'x'.repeat(501) }).expect(400);
   });
 
   it('lists and shows own bookings', async () => {

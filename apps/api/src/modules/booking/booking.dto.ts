@@ -33,6 +33,26 @@ export class BuatBookingDto {
   keluhan_awal!: string;
 }
 
+/** Ubah jadwal ke slot lain psikolog yang sama (ganti psikolog = batalkan lalu booking baru). */
+export class UbahJadwalBookingDto {
+  @Matches(WAKTU_ISO, { message: 'waktu_mulai harus ISO-8601 dengan zona waktu, mis. 2026-12-01T09:00:00+07:00' })
+  waktu_mulai!: string;
+
+  @IsOptional()
+  @IsIn(TIPE_SESI)
+  tipe_sesi?: TipeSesi;
+}
+
+export class BatalBookingDto {
+  /** Alasan opsional; terlihat oleh psikolog di detail sesi. */
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @Length(1, 500)
+  @Matches(TEKS_BEBAS, { message: 'alasan mengandung karakter tidak valid' })
+  alasan?: string;
+}
+
 export const CAKUPAN_BOOKING = ['mendatang', 'riwayat', 'semua'] as const;
 export type CakupanBooking = (typeof CAKUPAN_BOOKING)[number];
 

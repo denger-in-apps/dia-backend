@@ -14,4 +14,8 @@ export const EVENT = {
   SESI_KEDALUWARSA: 'sesi:kedaluwarsa',
   /** Booking konseling baru untuk psikolog ini (PBI-10). */
   BOOKING_BARU: 'booking:baru',
+  /** Mahasiswa mengubah jadwal sesi (PBI-12); payload memuat `waktu_mulai_lama`. */
+  BOOKING_DIUBAH: 'booking:diubah',
+  /** Mahasiswa membatalkan sesi (PBI-12). */
+  BOOKING_DIBATALKAN: 'booking:dibatalkan',
 } as const;

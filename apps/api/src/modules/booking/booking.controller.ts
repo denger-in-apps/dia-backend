@@ -1,10 +1,22 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import { Roles } from '../../common/auth/roles.decorator';
 import { AuthenticatedUser, Role } from '../../common/auth/auth.types';
 import { BookingService } from './booking.service';
-import { BuatBookingDto, DaftarBookingQuery, SlotQuery } from './booking.dto';
+import { BatalBookingDto, BuatBookingDto, DaftarBookingQuery, SlotQuery, UbahJadwalBookingDto } from './booking.dto';
 
 const uuid = () => new ParseUUIDPipe();
 
@@ -24,6 +36,18 @@ export class BookingController {
   @Get()
   daftar(@CurrentUser() user: AuthenticatedUser, @Query() query: DaftarBookingQuery) {
     return this.booking.daftar(user.id, query);
+  }
+
+  /** Ubah jadwal ke slot lain psikolog yang sama; 409 `SESI_BENTROK` + alternatif bila slot terisi. */
+  @Patch(':id/jadwal')
+  ubahJadwal(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid()) id: string, @Body() dto: UbahJadwalBookingDto) {
+    return this.booking.ubahJadwal(user.id, id, dto);
+  }
+
+  @Post(':id/batal')
+  @HttpCode(HttpStatus.OK)
+  batal(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid()) id: string, @Body() dto: BatalBookingDto) {
+    return this.booking.batal(user.id, id, dto);
   }
 
   /** Detail memuat keluhan awal yang didekripsi; jangan di-cache. */

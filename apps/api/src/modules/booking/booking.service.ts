@@ -22,7 +22,14 @@ import { zonaWaktuJadwal } from '../../common/domain/zona-waktu';
 import { PsikologGateway } from '../realtime/psikolog.gateway';
 import { EVENT } from '../realtime/realtime.constants';
 import { bookingConfig, JUMLAH_ALTERNATIF, RENTANG_ALTERNATIF_JAM } from './booking.constants';
-import { BuatBookingDto, CakupanBooking, DaftarBookingQuery } from './booking.dto';
+import { SesiGateway } from '../sesi/sesi.gateway';
+import {
+  BatalBookingDto,
+  BuatBookingDto,
+  CakupanBooking,
+  DaftarBookingQuery,
+  UbahJadwalBookingDto,
+} from './booking.dto';
 import { cariSlot, SlotSesi, slotSah } from './slot-sesi';
 
 export interface PsikologTersedia {
@@ -77,6 +84,7 @@ export class BookingService {
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly encryption: EncryptionService,
     private readonly gateway: PsikologGateway,
+    private readonly ruangSesi: SesiGateway,
   ) {}
 
   /** Psikolog yang dapat dibooking (akun AKTIF). */
@@ -126,6 +134,7 @@ export class BookingService {
         );
         const sesi = await this.ambilRow(client, idMahasiswa, inserted.rows[0].id_sesi);
         await this.simpanNotifikasiPsikolog(client, sesi, 'SESI_BARU');
+        await this.setelahJadwalBerubah(client, sesi);
         return sesi;
       });
     } catch (error) {
@@ -154,7 +163,101 @@ export class BookingService {
     return this.toDto(row, this.dekripsiKeluhan(row));
   }
 
+  /**
+   * Ubah jadwal sesi milik sendiri ke slot lain psikolog yang sama (PBI-12; use case
+   * Booking alt 5.a/5.b). Hanya sesi `DIJADWALKAN` dan paling lambat
+   * `BOOKING_MIN_SEBELUM_MENIT` sebelum jadwal lama. Bentrok → 409 + alternatif.
+   */
+  async ubahJadwal(idMahasiswa: string, idSesi: string, dto: UbahJadwalBookingDto): Promise<SesiMahasiswa> {
+    const waktuBaru = this.parseWaktu(dto.waktu_mulai);
+    const awal = await this.ambilRow(this.pool, idMahasiswa, idSesi);
+    this.pastikanBisaDiubah(awal, 'ubah');
+    const tipeBaru = dto.tipe_sesi ?? awal.tipe_sesi;
+    if (new Date(awal.waktu_mulai).getTime() === waktuBaru.getTime() && tipeBaru === awal.tipe_sesi) {
+      return this.toDto(awal, null); // tidak ada perubahan (idempoten)
+    }
+    if (!(await slotSah(this.pool, awal.id_psikolog, waktuBaru))) throw this.slotTidakValid();
+
+    let hasil: { sebelum: SesiRow; sesudah: SesiRow };
+    try {
+      hasil = await this.inTransaction(async (client) => {
+        // Kunci & periksa ulang di dalam transaksi: status/jadwal bisa berubah sejak pembacaan awal.
+        const sebelum = await this.ambilRow(client, idMahasiswa, idSesi, true);
+        this.pastikanBisaDiubah(sebelum, 'ubah');
+        await client.query(
+          `UPDATE sesi_konseling
+           SET waktu_mulai = $2::timestamptz, waktu_selesai = $2::timestamptz + make_interval(mins => $3::int),
+               tipe_sesi = $4
+           WHERE id_sesi = $1`,
+          [idSesi, waktuBaru.toISOString(), bookingConfig.durasiMenit(), tipeBaru],
+        );
+        const sesudah = await this.ambilRow(client, idMahasiswa, idSesi);
+        await this.simpanNotifikasiPsikolog(client, sesudah, 'SESI_DIUBAH', {
+          waktu_mulai_lama: new Date(sebelum.waktu_mulai).toISOString(),
+        });
+        await this.setelahJadwalBerubah(client, sesudah);
+        return { sebelum, sesudah };
+      });
+    } catch (error) {
+      throw await this.terjemahkanBentrok(error, idMahasiswa, awal.id_psikolog, waktuBaru, idSesi);
+    }
+
+    this.siarkanKePsikolog(hasil.sesudah, EVENT.BOOKING_DIUBAH, {
+      waktu_mulai_lama: new Date(hasil.sebelum.waktu_mulai).toISOString(),
+    });
+    return this.toDto(hasil.sesudah, null);
+  }
+
+  /** Batalkan sesi milik sendiri sebelum dimulai (PBI-12; use case Booking alt 5.c). */
+  async batal(idMahasiswa: string, idSesi: string, dto: BatalBookingDto): Promise<SesiMahasiswa> {
+    const sesi = await this.inTransaction(async (client) => {
+      const sebelum = await this.ambilRow(client, idMahasiswa, idSesi, true);
+      this.pastikanBisaDiubah(sebelum, 'batal');
+      await client.query(
+        `UPDATE sesi_konseling SET status_sesi = 'DIBATALKAN', alasan_batal = $2 WHERE id_sesi = $1`,
+        [idSesi, dto.alasan ?? 'Dibatalkan mahasiswa'],
+      );
+      const sesudah = await this.ambilRow(client, idMahasiswa, idSesi);
+      // Alasan pembatalan tidak dimasukkan ke notifikasi; psikolog melihatnya di detail sesi.
+      await this.simpanNotifikasiPsikolog(client, sesudah, 'SESI_DIBATALKAN');
+      await this.setelahJadwalBerubah(client, sesudah);
+      return sesudah;
+    });
+
+    this.siarkanKePsikolog(sesi, EVENT.BOOKING_DIBATALKAN);
+    this.ruangSesi.siarkanStatus(sesi.id_sesi, { id_sesi: sesi.id_sesi, status_sesi: sesi.status_sesi });
+    return this.toDto(sesi, null);
+  }
+
   // ---------------------------------------------------------------------------
+
+  /**
+   * Hook setelah sesi dibuat/diubah/dibatalkan, di dalam transaksi yang sama.
+   * Dipakai pengingat sesi (PBI-14); saat ini tanpa efek.
+   */
+  protected async setelahJadwalBerubah(_client: PoolClient, _sesi: SesiRow): Promise<void> {
+    return undefined;
+  }
+
+  /** Sesi hanya dapat diubah/dibatalkan selama `DIJADWALKAN` dan belum melewati batas waktunya. */
+  protected pastikanBisaDiubah(sesi: SesiRow, aksi: 'ubah' | 'batal'): void {
+    if (sesi.status_sesi !== 'DIJADWALKAN') {
+      throw new ConflictException({
+        kode: sesi.status_sesi === 'DIBATALKAN' ? 'SESI_SUDAH_DIBATALKAN' : 'SESI_TIDAK_DAPAT_DIUBAH',
+        pesan: `Sesi berstatus ${sesi.status_sesi} tidak dapat di${aksi === 'ubah' ? 'ubah' : 'batalkan'}`,
+      });
+    }
+    const mulai = new Date(sesi.waktu_mulai).getTime();
+    const batasMs = aksi === 'ubah' ? bookingConfig.minimalSebelumMenit() * 60_000 : 0;
+    if (Date.now() > mulai - batasMs) {
+      throw new UnprocessableEntityException({
+        kode: 'BATAS_WAKTU_TERLEWATI',
+        pesan: aksi === 'ubah'
+          ? `Jadwal hanya dapat diubah paling lambat ${bookingConfig.minimalSebelumMenit()} menit sebelum sesi`
+          : 'Sesi yang sudah dimulai tidak dapat dibatalkan',
+      });
+    }
+  }
 
   protected async ambilRow(executor: Pool | PoolClient, idMahasiswa: string, idSesi: string, lock = false): Promise<SesiRow> {
     const result = await executor.query<SesiRow>(

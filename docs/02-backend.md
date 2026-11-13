@@ -295,7 +295,8 @@ Sinkronisasi `psikolog.status_jaga`: job per menit yang menyetel `status_jaga` b
 
 ### 8.4 Booking & Sesi — PBI-10…14
 
-> Implementasi & kode error rinci: [PBI-10](PBI-10-booking-konseling.md), [PBI-11](PBI-11-jadwal-dan-ruang-sesi.md)
+> Implementasi & kode error rinci: [PBI-10](PBI-10-booking-konseling.md), [PBI-11](PBI-11-jadwal-dan-ruang-sesi.md),
+> [PBI-12](PBI-12-ubah-batal-sesi.md)
 > (ruang sesi: REST `/sesi/:id/kunci`, `/sesi/:id/pesan` + Socket.IO `/sesi`).
 
 | Method | Path | Peran | Keterangan |
