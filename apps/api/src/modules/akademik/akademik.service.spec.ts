@@ -63,3 +63,25 @@ describe('AkademikService (SCRUM-210)', () => {
     expect(redis.set).toHaveBeenCalledWith(`akademik:${nim}`, 'tidak_aktif', 'EX', 86400);
   });
 });
+
+describe('AkademikService.hapusCache (SCRUM-213, hapus akun mahasiswa)', () => {
+  const buat = (del: jest.Mock) => new AkademikService(
+    { cekStatus: jest.fn() } as unknown as AkademikClient,
+    { query: jest.fn() } as unknown as Pool,
+    { status: 'ready', get: jest.fn(), set: jest.fn(), del } as never,
+  );
+
+  it('menghapus key akademik:{nim} yang ada', async () => {
+    const del = jest.fn().mockResolvedValue(1);
+    await expect(buat(del).hapusCache('1302210001')).resolves.toBe(true);
+    expect(del).toHaveBeenCalledWith('akademik:1302210001');
+  });
+
+  it('mengembalikan false bila key tidak ada', async () => {
+    await expect(buat(jest.fn().mockResolvedValue(0)).hapusCache('1302210099')).resolves.toBe(false);
+  });
+
+  it('tidak melempar error bila Redis gagal (best-effort)', async () => {
+    await expect(buat(jest.fn().mockRejectedValue(new Error('redis down'))).hapusCache('1302210001')).resolves.toBe(false);
+  });
+});

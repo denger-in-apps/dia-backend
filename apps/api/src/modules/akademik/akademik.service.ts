@@ -103,6 +103,20 @@ export class AkademikService {
     );
   }
 
+  /**
+   * Hapus cache status akademik sebuah NIM (mis. setelah akun mahasiswa dihapus/dianonimkan)
+   * agar NIM asli tidak tersisa di Redis. Best-effort: kegagalan Redis tidak membatalkan
+   * operasi pemanggil. @returns `true` bila ada entri yang dihapus.
+   */
+  async hapusCache(nim: string): Promise<boolean> {
+    try {
+      await ensureRedisConnection(this.redis);
+      return (await this.redis.del(this.cacheKey(nim))) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   private cacheKey(nim: string): string {
     return `akademik:${nim}`;
   }
