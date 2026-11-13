@@ -1,9 +1,21 @@
-import { ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Pool } from 'pg';
 import { DATABASE_POOL } from '../../database/database.module';
 import { AkademikService } from '../../modules/akademik/akademik.service';
 import { AccessTokenClaims, AuthenticatedUser, USER_ROLES } from './auth.types';
+
+export interface OpsiVerifikasi {
+  /** Endpoint darurat: gangguan API akademik tidak memblokir mahasiswa yang tercatat aktif. */
+  izinkanSaatAkademikGangguan?: boolean;
+}
 
 export interface VerifiedAccessToken {
   user: AuthenticatedUser;
@@ -17,13 +29,15 @@ export interface VerifiedAccessToken {
  */
 @Injectable()
 export class AccessTokenService {
+  private readonly logger = new Logger(AccessTokenService.name);
+
   constructor(
     private readonly jwtService: JwtService,
     @Inject(DATABASE_POOL) private readonly pool: Pool,
     private readonly akademik: AkademikService,
   ) {}
 
-  async verifikasi(token: string): Promise<VerifiedAccessToken> {
+  async verifikasi(token: string, opsi: OpsiVerifikasi = {}): Promise<VerifiedAccessToken> {
     let claims: AccessTokenClaims;
     try {
       claims = await this.jwtService.verifyAsync<AccessTokenClaims>(token, {
@@ -60,7 +74,13 @@ export class AccessTokenService {
     if (claims.role === 'MAHASISWA') {
       if (!account.terakhir_verifikasi_at ||
           Date.now() - new Date(account.terakhir_verifikasi_at).getTime() >= 24 * 60 * 60 * 1000) {
-        await this.akademik.wajibAktif(account.nim);
+        try {
+          await this.akademik.wajibAktif(account.nim);
+        } catch (error) {
+          // Status DB sudah dipastikan aktif di atas; hanya gangguan layanan yang dimaafkan.
+          if (!(error instanceof ServiceUnavailableException) || !opsi.izinkanSaatAkademikGangguan) throw error;
+          this.logger.warn(`Akses darurat diizinkan untuk mahasiswa ${claims.sub} saat API akademik gangguan`);
+        }
       }
     }
 

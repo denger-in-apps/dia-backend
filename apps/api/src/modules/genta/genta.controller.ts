@@ -14,12 +14,14 @@ import {
 import { Response } from 'express';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import { Roles } from '../../common/auth/roles.decorator';
+import { IzinkanSaatAkademikGangguan } from '../../common/auth/akademik-gangguan.decorator';
 import { AuthenticatedUser, Role } from '../../common/auth/auth.types';
 import { GentaService } from './genta.service';
 import { BuatSosDto, LokasiDto } from './genta.dto';
 
 @Controller('genta/sos')
 @Roles(Role.MAHASISWA)
+@IzinkanSaatAkademikGangguan()
 export class GentaController {
   constructor(private readonly genta: GentaService) {}
 

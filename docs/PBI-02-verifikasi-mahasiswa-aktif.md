@@ -10,7 +10,16 @@ Sebagai sistem, saya ingin memeriksa status keaktifan mahasiswa agar hanya mahas
 - Status bersumber dari adapter akademik dan disimpan di `mahasiswa.status_aktif` beserta `mahasiswa.terakhir_verifikasi_at`.
 - Status akademik dicache di Redis dengan key `akademik:{nim}` selama maksimal 24 jam.
 - Timeout integrasi akademik adalah 3 detik.
-- Jika integrasi gagal, akun aktif boleh memakai hasil DB yang diverifikasi dalam 24 jam terakhir. Akun baru yang belum pernah diverifikasi ditolak (fail-closed).
+- Jika integrasi gagal, akun yang terakhir terverifikasi aktif boleh memakai hasil DB selama
+  `AKADEMIK_TOLERANSI_GANGGUAN_JAM` (default 72 jam, minimal 24). Toleransi harus lebih panjang
+  dari interval re-verifikasi 24 jam; sebelumnya keduanya sama sehingga fallback tidak pernah
+  berlaku di guard. Akun baru yang belum pernah diverifikasi ditolak (fail-closed) dan akun yang
+  tercatat tidak aktif tetap ditolak.
+- Circuit breaker per instance: setelah API akademik gagal, panggilan berikutnya dilewati selama
+  30 detik (langsung memakai status DB) agar setiap request tidak menunggu timeout 3 detik.
+- **Endpoint keselamatan** (`/genta/sos/*`, decorator `@IzinkanSaatAkademikGangguan()`): mahasiswa
+  yang tercatat aktif di DB tetap dilayani walaupun gangguan melewati masa toleransi (02-backend.md §6),
+  dan kejadiannya dicatat di log. Mahasiswa yang terverifikasi tidak aktif tetap `403`.
 - Status nonaktif menghasilkan `403 AKUN_TIDAK_AKTIF`; callback SSO mengarahkan frontend dengan `error=akun_tidak_aktif` dan tidak menerbitkan sesi.
 - Status mahasiswa diperiksa di callback SSO, saat refresh token, dan saat akses API mahasiswa. Pemeriksaan ulang ke sumber akademik dilakukan saat waktu verifikasi telah mencapai 24 jam.
 
@@ -152,7 +161,7 @@ docker compose exec redis redis-cli DEL akademik:TEST-DEV-0001
 - [ ] Mahasiswa nonaktif tidak memperoleh sesi dan menerima kode `AKUN_TIDAK_AKTIF`.
 - [ ] Access token mahasiswa dengan status DB nonaktif ditolak oleh API.
 - [ ] Cache status berlaku maksimal 24 jam.
-- [ ] Saat layanan akademik gagal, akun yang terakhir diverifikasi aktif dalam 24 jam dapat lanjut; akun baru gagal tertutup.
+- [ ] Saat layanan akademik gagal, akun yang terakhir diverifikasi aktif dalam `AKADEMIK_TOLERANSI_GANGGUAN_JAM` (72 jam) dapat lanjut; akun baru gagal tertutup; tombol SOS tidak pernah terblokir oleh gangguan akademik.
 - [ ] Token akses maupun data sensitif tidak memuat NIM.
 
 ## Batasan saat ini
