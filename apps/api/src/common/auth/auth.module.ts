@@ -13,6 +13,8 @@ import { RedisModule } from '../redis/redis.module';
 import { RolesGuard } from './roles.guard';
 import { SSO_STRATEGY } from './sso-strategy';
 import { AkademikModule } from '../../modules/akademik/akademik.module';
+import { MfaService } from './mfa.service';
+import { MfaTokenService } from './mfa-token.service';
 
 function requiredFile(name: string): string {
   const path = process.env[name];
@@ -48,6 +50,8 @@ function requiredFile(name: string): string {
   providers: [
     AuthService,
     AccessTokenService,
+    MfaTokenService,
+    MfaService,
     OidcSsoStrategy,
     {
       provide: SSO_STRATEGY,

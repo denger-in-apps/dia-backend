@@ -6,6 +6,7 @@ import cookieParser = require('cookie-parser');
 import { INestApplication } from '@nestjs/common';
 import request = require('supertest');
 import { AuthController } from './auth.controller';
+import { MfaService } from './mfa.service';
 import { AuthService } from './auth.service';
 import { SsoProviderDeniedException, SSO_STRATEGY } from './sso-strategy';
 import { APP_GUARD } from '@nestjs/core';
@@ -31,6 +32,7 @@ describe('AuthController', () => {
   };
   let jwt: { verifyAsync: jest.Mock };
   let pool: { query: jest.Mock };
+  let mfa: Record<string, jest.Mock>;
 
   const session = {
     accessToken: 'access-token',
@@ -59,6 +61,14 @@ describe('AuthController', () => {
       getCurrentUser: jest.fn().mockResolvedValue({
         id: 'user-id', role: 'DOSEN_ADMIN', nama: 'Dosen', email: 'dosen@example.edu',
       }),
+    };
+    mfa = {
+      mulai: jest.fn().mockResolvedValue({ secret: 'S', otpauth_url: 'otpauth://x', berlaku_detik: 600 }),
+      aktifkan: jest.fn().mockResolvedValue({
+        accessToken: 'mfa-access', expiresIn: 900, user: { id: 'user-id', role: 'PSIKOLOG' },
+        refreshToken: 'mfa-refresh', refreshTokenExpiresIn: 60,
+      }),
+      tokenUntukStafLogin: jest.fn().mockResolvedValue({ mfa_setup_token: 't', berlaku_detik: 600 }),
     };
     sso = {
       createAuthorizationUrl: jest.fn().mockResolvedValue(new URL('https://idp.example/authorize')),
@@ -89,6 +99,7 @@ describe('AuthController', () => {
         { provide: JwtService, useValue: jwt },
         { provide: DATABASE_POOL, useValue: pool },
         { provide: AkademikService, useValue: { wajibAktif: jest.fn() } },
+        { provide: MfaService, useValue: mfa },
         AccessTokenService,
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: RolesGuard },
@@ -284,5 +295,32 @@ describe('AuthController', () => {
       .send({ password_lama: 'x', password_baru: 'y' })
       .expect(403);
     expect(auth.gantiPasswordStaf).not.toHaveBeenCalled();
+  });
+
+  it('lets staff with a temporary password reach /auth/me (to see wajib_ganti_password)', async () => {
+    pool.query.mockResolvedValue({ rows: [{ nim: null, status_aktif: true, terakhir_verifikasi_at: null, wajib_ganti_password: true }] });
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me').set('Authorization', 'Bearer valid-access-token').expect(200);
+  });
+
+  it('enrolls MFA with a setup token and sets the session cookie without exposing the refresh token', async () => {
+    const mulai = await request(app.getHttpServer())
+      .post('/api/v1/auth/staff/mfa/mulai').send({ mfa_setup_token: 'a.b.c' }).expect(200);
+    expect(mulai.headers['cache-control']).toBe('no-store');
+    expect(mfa.mulai).toHaveBeenCalledWith('a.b.c');
+
+    const aktif = await request(app.getHttpServer())
+      .post('/api/v1/auth/staff/mfa/aktifkan').send({ mfa_setup_token: 'a.b.c', otp: '123456' }).expect(200);
+    expect(mfa.aktifkan).toHaveBeenCalledWith('a.b.c', '123456', expect.anything(), undefined);
+    expect(aktif.body.accessToken).toBe('mfa-access');
+    expect(aktif.body).not.toHaveProperty('refreshToken');
+    expect(aktif.headers['set-cookie'][0]).toMatch(/^refresh_token=mfa-refresh;.*HttpOnly/);
+  });
+
+  it('issues a voluntary MFA setup token only to logged-in staff', async () => {
+    await request(app.getHttpServer()).post('/api/v1/auth/staff/mfa/token').expect(401);
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/staff/mfa/token').set('Authorization', 'Bearer valid-access-token').expect(200);
+    expect(mfa.tokenUntukStafLogin).toHaveBeenCalledWith({ id: 'user-id', role: 'DOSEN_ADMIN' });
   });
 });

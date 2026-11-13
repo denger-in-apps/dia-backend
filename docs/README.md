@@ -85,8 +85,10 @@ docker compose logs -f api
 
 Log `Nest application successfully started` menandakan API berhasil mulai.
 Log migrasi dapat dilihat terpisah dengan `docker compose logs migrate`.
-Login staf hanya tersedia untuk akun yang sudah diprovisikan; pendaftaran dan
-reset password staf berada di luar subtask login ini.
+Akun dosen admin pertama dibuat dengan `npm run admin:buat` (lihat
+[PBI-01 §6](PBI-01-auth-testing.md#6-mfa-staf--password-sementara-scrum-208)); akun psikolog
+dibuat dan di-reset oleh dosen admin (PBI-09). Password sementara wajib diganti dan, di
+produksi, MFA didaftarkan saat login pertama.
 
 ### Menjalankan unit test
 

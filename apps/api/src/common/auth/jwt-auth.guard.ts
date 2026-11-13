@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { AccessTokenService } from './access-token.service';
 import { IZINKAN_SAAT_AKADEMIK_GANGGUAN } from './akademik-gangguan.decorator';
+import { IZINKAN_PASSWORD_SEMENTARA } from './password-sementara.decorator';
 
 /** Ambil token dari header `Authorization: Bearer <token>`. */
 export function bearerToken(authorization: unknown): string | null {
@@ -33,11 +34,11 @@ export class JwtAuthGuard implements CanActivate {
     const token = bearerToken(request.headers.authorization);
     if (!token) throw new UnauthorizedException('Token tidak valid');
 
-    const izinkanSaatAkademikGangguan = this.reflector.getAllAndOverride<boolean>(IZINKAN_SAAT_AKADEMIK_GANGGUAN, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    const { user } = await this.accessToken.verifikasi(token, { izinkanSaatAkademikGangguan });
+    const targets = [context.getHandler(), context.getClass()];
+    const { user } = await this.accessToken.verifikasi(token, {
+      izinkanSaatAkademikGangguan: this.reflector.getAllAndOverride<boolean>(IZINKAN_SAAT_AKADEMIK_GANGGUAN, targets),
+      izinkanPasswordSementara: this.reflector.getAllAndOverride<boolean>(IZINKAN_PASSWORD_SEMENTARA, targets),
+    });
     request.user = user;
     return true;
   }

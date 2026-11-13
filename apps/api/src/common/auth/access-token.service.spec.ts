@@ -43,3 +43,19 @@ describe('AccessTokenService akses darurat (SCRUM-210)', () => {
     expect(Reflect.getMetadata(IZINKAN_SAAT_AKADEMIK_GANGGUAN, GentaController)).toBe(true);
   });
 });
+
+describe('AccessTokenService password sementara (SCRUM-208)', () => {
+  const build = (wajib: boolean) => new AccessTokenService(
+    { verifyAsync: jest.fn().mockResolvedValue({ sub: 'p', role: 'PSIKOLOG', jti: 'j', iat: 1, exp: 2 }) } as never,
+    { query: jest.fn().mockResolvedValue({ rows: [{ nim: null, status_aktif: true, wajib_ganti_password: wajib }] }) } as never,
+    {} as never,
+  );
+
+  it('blocks staff with a temporary password except on explicitly allowed endpoints', async () => {
+    const error = await build(true).verifikasi('t').catch((e) => e);
+    expect(error).toBeInstanceOf(ForbiddenException);
+    expect(error.getResponse().kode).toBe('PASSWORD_WAJIB_DIGANTI');
+    await expect(build(true).verifikasi('t', { izinkanPasswordSementara: true })).resolves.toBeDefined();
+    await expect(build(false).verifikasi('t')).resolves.toBeDefined();
+  });
+});

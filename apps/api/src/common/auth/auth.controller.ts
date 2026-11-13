@@ -26,12 +26,17 @@ import { REFRESH_COOKIE_NAME, refreshCookieOptions } from './refresh-cookie';
 import { Roles } from './roles.decorator';
 import { Role } from './auth.types';
 import { GantiPasswordDto } from './dto/ganti-password.dto';
+import { AktifkanMfaDto, MulaiMfaDto } from './dto/mfa.dto';
+import { MfaService } from './mfa.service';
+import { IzinkanPasswordSementara } from './password-sementara.decorator';
+import { RoleStaf } from './mfa-token.service';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
     @Inject(SSO_STRATEGY) private readonly sso: SsoStrategy,
+    private readonly mfa: MfaService,
   ) {}
 
   @Get('sso/login')
@@ -145,6 +150,7 @@ export class AuthController {
   /** Ganti password staf; setelah berhasil semua sesi dicabut sehingga perlu login ulang. */
   @Post('staff/password')
   @Roles(Role.PSIKOLOG, Role.DOSEN_ADMIN)
+  @IzinkanPasswordSementara()
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -157,7 +163,40 @@ export class AuthController {
     response.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
   }
 
+  /** Langkah 1 pendaftaran MFA: secret + URI otpauth (QR) dari `mfa_setup_token`. */
+  @Post('staff/mfa/mulai')
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  async mulaiMfa(@Body() dto: MulaiMfaDto, @Res({ passthrough: true }) response: Response) {
+    response.setHeader('Cache-Control', 'no-store');
+    return this.mfa.mulai(dto.mfa_setup_token);
+  }
+
+  /** Langkah 2: verifikasi OTP pertama, simpan secret, terbitkan sesi. */
+  @Post('staff/mfa/aktifkan')
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  async aktifkanMfa(@Body() dto: AktifkanMfaDto, @Req() request: Request, @Res() response: Response): Promise<void> {
+    const session = await this.mfa.aktifkan(dto.mfa_setup_token, dto.otp, request.ip, request.get('user-agent'));
+    this.setRefreshCookie(response, session);
+    response.status(HttpStatus.OK).json(this.publicSession(session));
+  }
+
+  /** Staf yang sudah login (MFA belum wajib) meminta token untuk mengaktifkan MFA secara sukarela. */
+  @Post('staff/mfa/token')
+  @Roles(Role.PSIKOLOG, Role.DOSEN_ADMIN)
+  @IzinkanPasswordSementara()
+  @HttpCode(HttpStatus.OK)
+  tokenMfa(@CurrentUser() user: AuthenticatedUser) {
+    return this.mfa.tokenUntukStafLogin({ id: user.id, role: user.role as RoleStaf });
+  }
+
   @Get('me')
+  @IzinkanPasswordSementara()
   async me(@CurrentUser() user: AuthenticatedUser): Promise<AuthProfile> {
     const account = await this.auth.getCurrentUser(user);
     if (!account) throw new ForbiddenException('Akun tidak aktif');

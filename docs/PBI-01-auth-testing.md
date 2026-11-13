@@ -240,7 +240,41 @@ login. Error callback diarahkan ke frontend dengan salah satu kode berikut:
 - `sso_gangguan`: provider tidak dapat dijangkau atau mengalami gangguan.
 - `sso_gagal`: callback atau klaim tidak valid.
 
-## 6. Menutup service
+## 6. MFA staf & password sementara (SCRUM-208)
+
+Di produksi `STAFF_MFA_REQUIRED` default `true`. Staf yang belum mendaftarkan MFA tetap dapat
+login lewat alur pendaftaran berikut (password sudah terbukti benar di langkah 1):
+
+| Langkah | Request | Hasil |
+|---|---|---|
+| 1 | `POST /auth/staff/login` tanpa `otp` | `403 { kode: "MFA_WAJIB", mfa_setup_token }` (token RS256 audience `dia-mfa-setup`, 10 menit; tidak berlaku sebagai access token) |
+| 2 | `POST /auth/staff/mfa/mulai { mfa_setup_token }` | `{ secret, otpauth_url, berlaku_detik }` — tampilkan `otpauth_url` sebagai QR; secret sementara disimpan terenkripsi di Redis 10 menit |
+| 3 | `POST /auth/staff/mfa/aktifkan { mfa_setup_token, otp }` | `200` sesi baru (access token + cookie refresh); `mfa_secret_enc` tersimpan terenkripsi |
+| berikutnya | `POST /auth/staff/login { ..., otp }` | Login normal dengan OTP (anti-replay per time-step) |
+
+Staf yang sudah login dan ingin mengaktifkan MFA secara sukarela memanggil
+`POST /auth/staff/mfa/token` (Bearer) untuk mendapat `mfa_setup_token`, lalu langkah 2–3.
+Akun yang sudah ber-MFA → `409 MFA_SUDAH_AKTIF`; OTP salah → `401 OTP_SALAH`. Endpoint
+`mulai`/`aktifkan` dibatasi 5 percobaan/menit; Redis wajib tersedia (fail-closed `503`).
+
+**Password sementara.** Akun dengan `wajib_ganti_password = true` (dibuat/di-reset admin atau
+CLI) hanya dapat memakai `GET /auth/me`, `POST /auth/staff/password`, dan
+`POST /auth/staff/mfa/token`. Endpoint lain — termasuk Socket.IO psikolog — membalas
+`403 PASSWORD_WAJIB_DIGANTI` sampai password diganti.
+
+**Akun dosen admin pertama (produksi).** Tidak ada endpoint publik untuk membuat admin.
+Operator dengan akses DB menjalankan:
+
+```powershell
+docker compose exec api npm run admin:buat -- --np 198001012005011001 --nama "Dr. Siti" --email siti@kampus.ac.id
+# image produksi: node dist/database/seed/buat-admin.js --np ... --nama ... --email ...
+# lupa password: npm run admin:buat -- --email siti@kampus.ac.id --reset
+```
+
+Skrip mencetak password sementara sekali (argon2id di DB); admin wajib menggantinya dan
+mendaftarkan MFA saat login pertama. Akun psikolog dibuat admin lewat `POST /admin/psikolog` (PBI-09).
+
+## 7. Menutup service
 
 ```powershell
 docker compose down

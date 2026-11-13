@@ -41,6 +41,7 @@ describe('AuthService', () => {
       encryption as unknown as EncryptionService,
       akademik as never,
       redis as never,
+      { terbitkan: jest.fn().mockResolvedValue('mfa-setup-token') } as never,
     );
     delete process.env.REFRESH_TOKEN_TTL_SECONDS;
     delete process.env.REFRESH_REUSE_GRACE_SECONDS;
@@ -217,8 +218,11 @@ describe('AuthService', () => {
     const previousEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
-      await expect(service.loginStaff('PSIKOLOG', 'psy@example.edu', password, undefined, undefined, undefined))
-        .rejects.toThrow('MFA_WAJIB');
+      const error = await service.loginStaff('PSIKOLOG', 'psy@example.edu', password, undefined, undefined, undefined)
+        .catch((e) => e);
+      expect(error.getStatus()).toBe(403);
+      // Password sudah terbukti: staf menerima token sekali pakai untuk mendaftarkan MFA.
+      expect(error.getResponse()).toEqual(expect.objectContaining({ kode: 'MFA_WAJIB', mfa_setup_token: 'mfa-setup-token' }));
     } finally {
       process.env.NODE_ENV = previousEnv;
     }

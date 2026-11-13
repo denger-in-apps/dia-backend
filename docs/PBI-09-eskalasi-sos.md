@@ -243,7 +243,7 @@ Prefix `/api/v1`, Bearer token. Endpoint `/admin/*` hanya `DOSEN_ADMIN`.
 
 Password sementara 24 karakter acak, di-hash argon2id, dan dikirim dengan
 `Cache-Control: no-store`; serahkan ke psikolog lewat kanal aman. Akun ditandai
-`wajib_ganti_password` (terlihat di `GET /auth/me`) sampai psikolog menggantinya lewat
+`wajib_ganti_password` (terlihat di `GET /auth/me`; endpoint lain dibalas `403 PASSWORD_WAJIB_DIGANTI`) sampai psikolog menggantinya lewat
 `POST /auth/staff/password` `{ password_lama, password_baru }` (min. 12 karakter, berlaku
 juga untuk dosen admin; semua sesi dicabut setelah berhasil, maks. 5 percobaan/menit).
 
@@ -300,8 +300,8 @@ cd apps/api
 npm test -- --runInBand src/modules/admin-staf
 ```
 
-Catatan: di produksi `STAFF_MFA_REQUIRED` default `true`, sehingga psikolog baru belum dapat
-login sampai alur pendaftaran MFA tersedia (lihat PBI-01).
+Catatan: di produksi `STAFF_MFA_REQUIRED` default `true`; psikolog baru mendaftarkan MFA saat
+login pertama lewat `mfa_setup_token` (lihat PBI-01 §6).
 
 ---
 

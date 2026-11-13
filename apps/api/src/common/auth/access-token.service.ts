@@ -15,6 +15,8 @@ import { AccessTokenClaims, AuthenticatedUser, USER_ROLES } from './auth.types';
 export interface OpsiVerifikasi {
   /** Endpoint darurat: gangguan API akademik tidak memblokir mahasiswa yang tercatat aktif. */
   izinkanSaatAkademikGangguan?: boolean;
+  /** Endpoint yang boleh dipakai staf berpassword sementara (mis. ganti password, /auth/me). */
+  izinkanPasswordSementara?: boolean;
 }
 
 export interface VerifiedAccessToken {
@@ -56,20 +58,30 @@ export class AccessTokenService {
     ) throw new UnauthorizedException('Token tidak valid atau sudah kedaluwarsa');
 
     const accountQuery = claims.role === 'MAHASISWA'
-      ? `SELECT nim, status_aktif, terakhir_verifikasi_at FROM mahasiswa
+      ? `SELECT nim, status_aktif, terakhir_verifikasi_at, false AS wajib_ganti_password FROM mahasiswa
          WHERE id_mahasiswa = $1 AND deleted_at IS NULL`
       : claims.role === 'PSIKOLOG'
-        ? `SELECT NULL::text AS nim, true AS status_aktif, NULL::timestamptz AS terakhir_verifikasi_at
+        ? `SELECT NULL::text AS nim, true AS status_aktif, NULL::timestamptz AS terakhir_verifikasi_at,
+                  wajib_ganti_password
            FROM psikolog WHERE id_psikolog = $1 AND status_akun = 'AKTIF'`
-        : `SELECT NULL::text AS nim, true AS status_aktif, NULL::timestamptz AS terakhir_verifikasi_at
+        : `SELECT NULL::text AS nim, true AS status_aktif, NULL::timestamptz AS terakhir_verifikasi_at,
+                  wajib_ganti_password
            FROM dosen_admin WHERE id_dosen = $1 AND aktif`;
     const result = await this.pool.query<{
       nim: string;
       status_aktif: boolean;
       terakhir_verifikasi_at: Date | null;
+      wajib_ganti_password: boolean | null;
     }>(accountQuery, [claims.sub]);
     const account = result.rows[0];
     if (!account?.status_aktif) throw new ForbiddenException('AKUN_TIDAK_AKTIF');
+    // Password sementara dari admin (akun baru/reset) harus diganti sebelum memakai fitur lain.
+    if (account.wajib_ganti_password && !opsi.izinkanPasswordSementara) {
+      throw new ForbiddenException({
+        kode: 'PASSWORD_WAJIB_DIGANTI',
+        pesan: 'Ganti password sementara terlebih dahulu (POST /auth/staff/password)',
+      });
+    }
 
     if (claims.role === 'MAHASISWA') {
       if (!account.terakhir_verifikasi_at ||

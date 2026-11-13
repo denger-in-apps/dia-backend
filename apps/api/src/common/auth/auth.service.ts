@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { randomBytes, randomUUID, createHash, createHmac, timingSafeEqual } from 'crypto';
+import { randomBytes, randomUUID, createHash } from 'crypto';
 import * as argon2 from 'argon2';
 import { Pool, PoolClient } from 'pg';
 import { EncryptionService } from '../crypto/encryption.service';
@@ -17,6 +17,8 @@ import { AkademikService } from '../../modules/akademik/akademik.service';
 import Redis from 'ioredis';
 import { AUTH_REDIS } from './sso-state.lifecycle';
 import { ensureRedisConnection } from '../redis/redis.module';
+import { cocokkanTotp, TOTP_DRIFT_STEPS, TOTP_STEP_MS } from './totp';
+import { MfaTokenService } from './mfa-token.service';
 
 interface RefreshRow {
   id: string;
@@ -32,8 +34,6 @@ const ACCESS_TOKEN_SECONDS = 15 * 60;
 const DEFAULT_REFRESH_TOKEN_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_REFRESH_REUSE_GRACE_SECONDS = 10;
 const STUDENT_REVERIFY_MS = 24 * 60 * 60 * 1000;
-const TOTP_STEP_MS = 30_000;
-const TOTP_DRIFT_STEPS = 1;
 
 @Injectable()
 export class AuthService {
@@ -43,6 +43,7 @@ export class AuthService {
     private readonly encryption: EncryptionService,
     private readonly akademik: AkademikService,
     @Inject(AUTH_REDIS) private readonly redis: Redis,
+    private readonly mfaToken: MfaTokenService,
   ) {}
 
   /** Hash dummy agar email yang tidak terdaftar tetap menjalankan argon2 (anti-enumerasi). */
@@ -89,7 +90,13 @@ export class AuthService {
     } else if (otp) {
       throw new UnauthorizedException('Email atau password salah');
     } else if (this.staffMfaRequired()) {
-      throw new ForbiddenException('MFA_WAJIB');
+      // Password sudah benar: beri token pendaftaran MFA sekali pakai (10 menit) agar staf
+      // dapat mendaftarkan authenticator tanpa sesi penuh (POST /auth/staff/mfa/mulai).
+      throw new ForbiddenException({
+        kode: 'MFA_WAJIB',
+        pesan: 'MFA wajib; daftarkan aplikasi authenticator terlebih dahulu',
+        mfa_setup_token: await this.mfaToken.terbitkan({ id: account.id, role }),
+      });
     }
 
     return this.issueSession({ id: account.id, role }, ip, userAgent);
@@ -290,6 +297,11 @@ export class AuthService {
     }
   }
 
+  /** Terbitkan sesi staf setelah faktor login terpenuhi di alur lain (mis. aktivasi MFA). */
+  terbitkanSesiStaf(user: AuthenticatedUser, ip: string | undefined, userAgent: string | undefined): Promise<AuthSession> {
+    return this.issueSession(user, ip, userAgent);
+  }
+
   private async issueSession(
     user: AuthenticatedUser,
     ip: string | undefined,
@@ -417,25 +429,10 @@ export class AuthService {
   private verifyTotp(encryptedSecret: Buffer, role: UserRole, id: string, otp: string): number | null {
     try {
       const table = role === 'PSIKOLOG' ? 'psikolog' : 'dosen_admin';
-      const column = role === 'PSIKOLOG' ? 'id_psikolog' : 'id_dosen';
       const secretText = this.encryption
         .decrypt(encryptedSecret, `${table}:mfa_secret_enc:${id}`)
         .toString('utf8');
-      const secret = decodeBase32(secretText);
-      if (!/^\d{6}$/.test(otp)) return null;
-
-      const nowStep = Math.floor(Date.now() / TOTP_STEP_MS);
-      for (let drift = -TOTP_DRIFT_STEPS; drift <= TOTP_DRIFT_STEPS; drift++) {
-        const step = nowStep + drift;
-        const counter = Buffer.alloc(8);
-        counter.writeBigUInt64BE(BigInt(step));
-        const digest = createHmac('sha1', secret).update(counter).digest();
-        const offset = digest[digest.length - 1] & 0x0f;
-        const code = (digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
-        const expected = Buffer.from(code.toString().padStart(6, '0'));
-        if (timingSafeEqual(expected, Buffer.from(otp))) return step;
-      }
-      return null;
+      return cocokkanTotp(secretText, otp);
     } catch {
       return null;
     }
@@ -445,7 +442,7 @@ export class AuthService {
    * Menandai time-step OTP sebagai terpakai (SET NX) agar kode yang sama tidak bisa
    * di-replay dalam jendela validitasnya. Fail-closed bila Redis tidak tersedia.
    */
-  private async consumeTotpStep(role: UserRole, id: string, step: number): Promise<boolean> {
+  async consumeTotpStep(role: UserRole, id: string, step: number): Promise<boolean> {
     const ttlSeconds = Math.ceil(((TOTP_DRIFT_STEPS * 2 + 1) * TOTP_STEP_MS) / 1000);
     try {
       await ensureRedisConnection(this.redis);
@@ -493,17 +490,4 @@ export class AuthService {
     }
     return value;
   }
-}
-
-function decodeBase32(value: string): Buffer {
-  const normalized = value.replace(/=+$/g, '').replace(/\s+/g, '').toUpperCase();
-  if (!normalized || !/^[A-Z2-7]+$/.test(normalized)) throw new Error('Invalid TOTP secret');
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = '';
-  for (const char of normalized) bits += alphabet.indexOf(char).toString(2).padStart(5, '0');
-  const bytes: number[] = [];
-  for (let offset = 0; offset + 8 <= bits.length; offset += 8) {
-    bytes.push(Number.parseInt(bits.slice(offset, offset + 8), 2));
-  }
-  return Buffer.from(bytes);
 }
