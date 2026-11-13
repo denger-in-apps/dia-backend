@@ -11,6 +11,7 @@ import {
   Query,
   Req,
   Res,
+  UseFilters,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
@@ -18,6 +19,7 @@ import { Roles } from '../../common/auth/roles.decorator';
 import { AuthenticatedUser, Role } from '../../common/auth/auth.types';
 import { GentaPsikologService, KonteksPermintaan } from './genta-psikolog.service';
 import { DaftarSosQuery, UbahStatusSosDto } from './genta-psikolog.dto';
+import { LokasiRoleDitolakFilter } from './lokasi-role-ditolak.filter';
 
 const konteks = (request: Request): KonteksPermintaan => ({
   ip: request.ip,
@@ -67,7 +69,9 @@ export class GentaPsikologController {
     return this.genta.ubahStatus(user, id, dto, konteks(request));
   }
 
+  /** Lokasi SOS (PBI-06). Penolakan role diaudit oleh filter khusus endpoint ini. */
   @Get(':id/lokasi')
+  @UseFilters(LokasiRoleDitolakFilter)
   lokasi(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,

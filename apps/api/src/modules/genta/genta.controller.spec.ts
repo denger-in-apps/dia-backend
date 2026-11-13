@@ -7,11 +7,13 @@ import { GentaController } from './genta.controller';
 import { GentaService } from './genta.service';
 import { GentaPsikologController } from './genta-psikolog.controller';
 import { GentaPsikologService } from './genta-psikolog.service';
+import { AuditService } from '../../common/audit/audit.service';
 
 describe('GentaController', () => {
   let app: INestApplication;
   let genta: Record<string, jest.Mock>;
   let gentaPsikolog: Record<string, jest.Mock>;
+  let audit: { catat: jest.Mock };
   const idSos = '55555555-5555-4555-8555-555555555555';
   const mhs = TEST_USERS.MAHASISWA;
   const jwtLike = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl';
@@ -33,9 +35,11 @@ describe('GentaController', () => {
       ambil: jest.fn().mockResolvedValue({ id_sos: idSos, status_penanganan: 'DIAMBIL' }),
       ubahStatus: jest.fn().mockResolvedValue({ id_sos: idSos, status_penanganan: 'SELESAI' }),
     };
+    audit = { catat: jest.fn().mockResolvedValue(undefined) };
     const moduleRef = await Test.createTestingModule({
       controllers: [GentaController, GentaPsikologController],
       providers: [
+        { provide: AuditService, useValue: audit },
         { provide: GentaService, useValue: genta },
         { provide: GentaPsikologService, useValue: gentaPsikolog },
         ...authGuardProviders(),
@@ -101,11 +105,21 @@ describe('GentaController', () => {
       .post('/api/v1/genta/sos/abc/batal').set('Authorization', bearer('MAHASISWA')).expect(400);
   });
 
-  it('accepts an optional location with the SOS', async () => {
+    it('accepts an optional location with the SOS', async () => {
     const body = { ...valid, lokasi: { lat: -6.2, lng: 106.8, akurasi_m: 12.5 } };
     await request(app.getHttpServer())
       .post('/api/v1/genta/sos').set('Authorization', bearer('MAHASISWA')).send(body).expect(201);
     expect(genta.buatSos).toHaveBeenCalledWith(mhs.id, expect.objectContaining({ lokasi: body.lokasi }));
+  });
+
+  it('rejects null location when creating an SOS', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/genta/sos')
+      .set('Authorization', bearer('MAHASISWA'))
+      .send({ ...valid, lokasi: null })
+      .expect(400);
+
+    expect(genta.buatSos).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -136,15 +150,37 @@ describe('GentaController', () => {
   });
 
   it('exposes SOS locations only to psychologists, without caching', async () => {
+    await request(app.getHttpServer()).get(`/api/v1/psikolog/sos/${idSos}/lokasi`).expect(401);
     for (const role of ['MAHASISWA', 'DOSEN_ADMIN'] as const) {
-      await request(app.getHttpServer())
+      const denied = await request(app.getHttpServer())
         .get(`/api/v1/psikolog/sos/${idSos}/lokasi`).set('Authorization', bearer(role)).expect(403);
+      // Respons 403 tetap sama dengan penolakan RBAC global.
+      expect(denied.body).toEqual({ message: 'Peran tidak memiliki akses ke resource ini', error: 'Forbidden', statusCode: 403 });
     }
+    // PBI-06: penolakan role pada endpoint lokasi diaudit, tepat sekali per percobaan.
+    expect(audit.catat).toHaveBeenCalledTimes(2);
+    for (const [i, role] of (['MAHASISWA', 'DOSEN_ADMIN'] as const).entries()) {
+      expect(audit.catat.mock.calls[i][0]).toMatchObject({
+        aktor: TEST_USERS[role], aksi: 'SOS_LOKASI_READ', resourceType: 'log_sos', resourceId: idSos,
+        hasil: 'DITOLAK', metadata: { alasan: 'ROLE_TIDAK_DIIZINKAN' },
+      });
+    }
+    expect(gentaPsikolog.lokasiSos).not.toHaveBeenCalled();
     const response = await request(app.getHttpServer())
       .get(`/api/v1/psikolog/sos/${idSos}/lokasi`).set('Authorization', bearer('PSIKOLOG')).expect(200);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(gentaPsikolog.lokasiSos).toHaveBeenCalledTimes(1);
     expect(gentaPsikolog.lokasiSos).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, idSos, expect.any(Object));
+    // Akses psikolog diaudit oleh service (di-mock di sini), bukan oleh filter.
+    expect(audit.catat).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not audit role denials on other psikolog endpoints (filter scoped to /lokasi only)', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/psikolog/sos/${idSos}`).set('Authorization', bearer('MAHASISWA')).expect(403);
+    await request(app.getHttpServer())
+      .get('/api/v1/psikolog/sos').set('Authorization', bearer('DOSEN_ADMIN')).expect(403);
+    expect(audit.catat).not.toHaveBeenCalled();
   });
 
   describe('dashboard psikolog', () => {
@@ -167,6 +203,10 @@ describe('GentaController', () => {
       await request(app.getHttpServer())
         .get('/api/v1/psikolog/sos?cakupan=milik_saya&limit=20').set('Authorization', bearer('PSIKOLOG')).expect(200);
       expect(gentaPsikolog.daftar).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, { cakupan: 'milik_saya', limit: 20 });
+      for (const cakupan of ['aktif', 'antrean', 'riwayat']) {
+        await request(app.getHttpServer())
+          .get(`/api/v1/psikolog/sos?cakupan=${cakupan}&limit=100`).set('Authorization', bearer('PSIKOLOG')).expect(200);
+      }
 
       for (const qs of ['cakupan=semua', 'limit=0', 'limit=1000', 'id_psikolog=x']) {
         await request(app.getHttpServer())

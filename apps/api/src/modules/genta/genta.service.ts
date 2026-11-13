@@ -187,7 +187,7 @@ export class GentaService {
     const result = await this.pool.query<SosMahasiswa>(
       `UPDATE log_sos
        SET status_penanganan = 'SELESAI', alasan_selesai = 'DIBATALKAN_MAHASISWA', waktu_selesai = now(),
-           koordinat_lokasi_enc = NULL
+           lokasi_izin = false, koordinat_lokasi_enc = NULL
        WHERE id_sos = $1 AND id_mahasiswa = $2 AND status_penanganan = 'BARU'
        RETURNING ${SOS_COLUMNS}`,
       [idSos, idMahasiswa],
