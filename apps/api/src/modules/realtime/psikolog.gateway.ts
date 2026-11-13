@@ -12,7 +12,7 @@ import { AuthenticatedUser } from '../../common/auth/auth.types';
 import { bearerToken } from '../../common/auth/jwt-auth.guard';
 import { EVENT, NAMESPACE_PSIKOLOG, ROOM_SEMUA_PSIKOLOG, roomPsikolog } from './realtime.constants';
 
-function allowedOrigins(): string[] {
+export function allowedOrigins(): string[] {
   return (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((origin) => origin.trim())

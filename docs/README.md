@@ -17,6 +17,7 @@ Panduan acceptance dan smoke test:
 - [PBI-08 dashboard penanganan SOS](PBI-08-dashboard-penanganan-sos.md)
 - [PBI-09 eskalasi SOS & jadwal jaga](PBI-09-eskalasi-sos.md)
 - [PBI-10 booking konseling](PBI-10-booking-konseling.md)
+- [PBI-11 jadwal sesi psikolog & ruang sesi E2EE](PBI-11-jadwal-dan-ruang-sesi.md)
 
 ### Persiapan (PowerShell)
 
