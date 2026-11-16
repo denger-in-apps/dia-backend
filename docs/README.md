@@ -28,13 +28,14 @@ Panduan acceptance dan smoke test:
 - [PBI-17 Circle: telusuri, bergabung, persetujuan](PBI-17-circle.md)
 - [PBI-18 rekomendasi & pendampingan Circle](PBI-18-rekomendasi-pendampingan-circle.md)
 - [PBI-19 direktori sumber daya](PBI-19-direktori-sumber-daya.md)
+- [PBI-20 laporan agregat & master data](PBI-20-laporan-dan-master-data.md)
+- [PBI-21 audit log keamanan](PBI-21-audit-log.md)
 
 ### Batasan yang diketahui
 
 - Adapter SAML belum ada (`SSO_PROTOCOL=oidc` saja); kontrak REST akademik, SMS, dan email
   masih generik dan perlu disesuaikan dengan provider resmi.
-- Modul PBI-20 (laporan agregat, master data template kuesioner) dan PBI-21 (endpoint audit log)
-  belum dibuat. Kategori minat dan direktori sumber daya belum di-seed (diisi Dosen Admin);
+- Kategori minat dan direktori sumber daya belum di-seed (diisi Dosen Admin);
   template PHQ-9/GAD-7 v1 sudah ditanam migrasi tetapi terjemahannya perlu diverifikasi psikolog.
 - Ruang interaksi Circle masih polling REST (belum realtime); curhat berisiko tinggi belum punya aturan khusus.
 - Reset MFA staf yang kehilangan perangkat belum punya endpoint (lewat operator DB).

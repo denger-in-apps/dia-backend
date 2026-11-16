@@ -87,12 +87,4 @@ describe('CircleAdminService (SCRUM-264)', () => {
     expect(daftar[0]).toMatchObject({ diajukan_mahasiswa: true, jumlah_anggota: 6 });
     expect(daftar[0]).not.toHaveProperty('anggota');
   });
-
-  it('maps duplicate category names to 409', async () => {
-    client.query.mockImplementation(async (sql: string) => {
-      if (sql.includes('INSERT INTO kategori_minat')) throw Object.assign(new Error('dup'), { code: '23505' });
-      return { rows: [] };
-    });
-    await expect(service.buatKategori(admin, 'Akademik', {})).rejects.toBeInstanceOf(ConflictException);
-  });
 });

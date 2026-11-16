@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min } from 'class-validator';
 import { TEKS_BEBAS } from '../booking/booking.dto';
 import { KUOTA_MAKS, KUOTA_MIN } from './circle.constants';
 import { NO_CONTROL_CHARS } from './circle.dto';
@@ -57,19 +57,4 @@ export class UbahCircleAdminDto {
   /** Ganti pendamping (hanya untuk Circle AKTIF). */
   @IsOptional() @IsUUID()
   id_psikolog?: string;
-}
-
-export class KategoriMinatDto {
-  @Transform(trim) @IsString() @Length(2, 60)
-  @Matches(NO_CONTROL_CHARS, { message: 'nama mengandung karakter tidak valid' })
-  nama!: string;
-}
-
-export class UbahKategoriMinatDto {
-  @IsOptional() @Transform(trim) @IsString() @Length(2, 60)
-  @Matches(NO_CONTROL_CHARS, { message: 'nama mengandung karakter tidak valid' })
-  nama?: string;
-
-  @IsOptional() @IsBoolean()
-  aktif?: boolean;
 }

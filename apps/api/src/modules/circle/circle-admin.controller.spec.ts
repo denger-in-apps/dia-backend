@@ -14,7 +14,7 @@ describe('CircleAdminController', () => {
 
   beforeEach(async () => {
     circle = Object.fromEntries(
-      ['daftar', 'buat', 'detail', 'ubah', 'setujui', 'tolak', 'tutup', 'daftarKategori', 'buatKategori', 'ubahKategori']
+      ['daftar', 'buat', 'detail', 'ubah', 'setujui', 'tolak', 'tutup']
         .map((name) => [name, jest.fn().mockResolvedValue({})]),
     );
     const moduleRef = await Test.createTestingModule({
@@ -28,12 +28,10 @@ describe('CircleAdminController', () => {
 
   afterEach(() => app.close());
 
-  it('restricts circle approval and categories to Dosen Admin', async () => {
+  it('restricts circle approval to Dosen Admin', async () => {
     for (const role of ['MAHASISWA', 'PSIKOLOG'] as const) {
       await request(app.getHttpServer()).post(`/api/v1/admin/circles/${id}/setujui`).set('Authorization', bearer(role))
         .send({ id_psikolog: idPsi }).expect(403);
-      await request(app.getHttpServer()).post('/api/v1/admin/kategori-minat').set('Authorization', bearer(role))
-        .send({ nama: 'Akademik' }).expect(403);
     }
     expect(circle.setujui).not.toHaveBeenCalled();
   });

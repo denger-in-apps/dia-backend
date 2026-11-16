@@ -2,7 +2,6 @@ import {
   ConflictException,
   Inject,
   Injectable,
-  NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
@@ -10,12 +9,11 @@ import { DATABASE_POOL } from '../../database/database.module';
 import { denganTransaksi } from '../../database/transaksi';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/auth/auth.types';
-import { BuatCircleAdminDto, DaftarCircleAdminQuery, UbahCircleAdminDto, UbahKategoriMinatDto } from './circle-admin.dto';
+import { BuatCircleAdminDto, DaftarCircleAdminQuery, UbahCircleAdminDto } from './circle-admin.dto';
 import { StatusCircle } from './circle.constants';
 import { circleTidakDitemukan, FROM_CIRCLE, KOLOM_CIRCLE, toCircleRingkas } from './circle.service';
 
 type Ctx = { ip?: string; userAgent?: string };
-const UNIQUE_VIOLATION = '23505';
 
 interface AdminRow {
   id_circle: string;
@@ -35,6 +33,7 @@ interface AdminRow {
 
 /**
  * Persetujuan & pengelolaan Circle oleh Dosen Admin (PBI-17 / SCRUM-264, FR-ADM-07).
+ * Kategori minat dikelola modul master-data (PBI-20 / SCRUM-275).
  * Admin tidak melihat identitas anggota/pengaju maupun isi pesan (04-database.md §4.e):
  * hanya metadata dan jumlah anggota. Semua aksi diaudit `CIRCLE_*`.
  */
@@ -157,41 +156,6 @@ export class CircleAdminService {
     });
   }
 
-  // ---- Kategori minat (master data Circle, FR-ADM-07) --------------------------------
-
-  async daftarKategori() {
-    const result = await this.pool.query(
-      `SELECT k.id_kategori::text AS id, k.nama, k.aktif,
-              (SELECT count(*)::int FROM circle c WHERE c.id_kategori = k.id_kategori AND c.status = 'AKTIF') AS circle_aktif
-       FROM kategori_minat k ORDER BY k.aktif DESC, k.nama`,
-    );
-    return result.rows;
-  }
-
-  async buatKategori(admin: AuthenticatedUser, nama: string, ctx: Ctx) {
-    return denganTransaksi(this.pool, async (client) => {
-      const result = await this.tulisKategori(() => client.query<{ id: string; nama: string; aktif: boolean }>(
-        `INSERT INTO kategori_minat (nama) VALUES ($1) RETURNING id_kategori::text AS id, nama, aktif`,
-        [nama],
-      ));
-      await this.catat(client, admin, 'KATEGORI_MINAT_BUAT', result.id, ctx, undefined, 'kategori_minat');
-      return result;
-    });
-  }
-
-  /** Nonaktifkan = sembunyikan dari pilihan baru; Circle yang sudah ada tidak terpengaruh. */
-  async ubahKategori(admin: AuthenticatedUser, id: string, dto: UbahKategoriMinatDto, ctx: Ctx) {
-    return denganTransaksi(this.pool, async (client) => {
-      const result = await this.tulisKategori(() => client.query<{ id: string; nama: string; aktif: boolean }>(
-        `UPDATE kategori_minat SET nama = COALESCE($2, nama), aktif = COALESCE($3, aktif)
-         WHERE id_kategori = $1 RETURNING id_kategori::text AS id, nama, aktif`,
-        [id, dto.nama ?? null, dto.aktif ?? null],
-      ));
-      await this.catat(client, admin, 'KATEGORI_MINAT_UBAH', id, ctx, { field: Object.keys(dto) }, 'kategori_minat');
-      return result;
-    });
-  }
-
   // ---------------------------------------------------------------------------
 
   private async ambil(executor: Pool | PoolClient, idCircle: string, lock = false): Promise<AdminRow> {
@@ -241,19 +205,6 @@ export class CircleAdminService {
     );
   }
 
-  private async tulisKategori<T>(query: () => Promise<{ rows: T[] }>): Promise<T> {
-    try {
-      const result = await query();
-      if (!result.rows[0]) throw new NotFoundException({ kode: 'KATEGORI_TIDAK_DITEMUKAN', pesan: 'Kategori minat tidak ditemukan' });
-      return result.rows[0];
-    } catch (error) {
-      if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
-        throw new ConflictException({ kode: 'KATEGORI_SUDAH_ADA', pesan: 'Nama kategori sudah dipakai' });
-      }
-      throw error;
-    }
-  }
-
   private catat(
     client: PoolClient,
     admin: AuthenticatedUser,
@@ -261,9 +212,8 @@ export class CircleAdminService {
     id: string,
     ctx: Ctx,
     metadata?: Record<string, unknown>,
-    resourceType = 'circle',
   ) {
-    return this.audit.catat({ aktor: admin, aksi, resourceType, resourceId: id, ip: ctx.ip, userAgent: ctx.userAgent, metadata }, client);
+    return this.audit.catat({ aktor: admin, aksi, resourceType: 'circle', resourceId: id, ip: ctx.ip, userAgent: ctx.userAgent, metadata }, client);
   }
 
   private toDto(row: AdminRow) {

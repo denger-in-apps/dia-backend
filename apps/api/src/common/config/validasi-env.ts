@@ -37,7 +37,7 @@ export function validasiEnv(env: Env = process.env): void {
   const galat: string[] = [];
   const produksi = env.NODE_ENV === 'production';
 
-  for (const nama of ['DATABASE_URL', 'JWT_PRIVATE_KEY_PATH', 'JWT_PUBLIC_KEY_PATH', 'ENCRYPTION_ACTIVE_KEY_ID']) {
+  for (const nama of ['DATABASE_URL', 'REPORT_DATABASE_URL', 'JWT_PRIVATE_KEY_PATH', 'JWT_PUBLIC_KEY_PATH', 'ENCRYPTION_ACTIVE_KEY_ID']) {
     wajib(env, nama, galat);
   }
   if (produksi) {

@@ -368,6 +368,10 @@ Slot alternatif (use case 5.b): kembalikan 3–5 slot terdekat psikolog yang sam
 
 ### 8.6 Admin: Laporan, Master Data, Audit — PBI-20, 21
 
+> Implementasi: [PBI-20](PBI-20-laporan-dan-master-data.md) (laporan juga punya `/admin/laporan/sesi` dan `/curhat`;
+> periode `?dari=YYYY-MM&sampai=YYYY-MM`; master data di `/admin/kategori-minat` dan `/admin/template-kuesioner`)
+> dan [PBI-21](PBI-21-audit-log.md) (+ `/admin/audit-log/aksi`, `/admin/audit-log/ekspor` CSV; `AKSES_DITOLAK` dicatat `RolesGuard`).
+
 | Method | Path | Peran |
 |--------|------|-------|
 | GET | `/admin/laporan/ringkasan?dari=&sampai=` | Adm |
