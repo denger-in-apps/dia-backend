@@ -13,11 +13,12 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AdminStafModule } from './modules/admin-staf/admin-staf.module';
 import { BookingModule } from './modules/booking/booking.module';
 import { SesiModule } from './modules/sesi/sesi.module';
+import { CekMandiriModule } from './modules/cek-mandiri/cek-mandiri.module';
 
 @Module({
   imports: [
     LoggerModule.forRoot(konfigurasiLogger()), ScheduleModule.forRoot(), HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule,
-    GentaModule, RealtimeModule, AdminStafModule, BookingModule, SesiModule,
+    GentaModule, RealtimeModule, AdminStafModule, BookingModule, SesiModule, CekMandiriModule,
   ],
 })
 export class AppModule {}
