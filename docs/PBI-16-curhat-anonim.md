@@ -34,6 +34,26 @@ Semua respons `Cache-Control: no-store`.
   dengan jujur di UI sebelum mahasiswa mengirim curhat.
 - Hapus akun (PBI-03) menghapus seluruh curhat mahasiswa.
 
+## 2. Psikolog (SCRUM-261)
+
+Prefix `/api/v1`, Bearer token, hanya role `PSIKOLOG` (Dosen Admin tidak punya akses ke isi curhat).
+
+| Method | Path | Keterangan |
+|---|---|---|
+| GET | `/psikolog/curhat?status=&limit=` | Antrean: `BARU` → `DIBACA` → `DIJAWAB`, lalu yang paling lama menunggu |
+| GET | `/psikolog/curhat/:id` | Detail + balasan; curhat `BARU` otomatis menjadi `DIBACA` |
+| POST | `/psikolog/curhat/:id/balasan` | `{ isi }` (1–5000 karakter) → status `DIJAWAB` |
+
+- Semua pembacaan lewat view `v_curhat_untuk_psikolog` yang **tidak** memuat `id_mahasiswa`
+  (04-database.md §4.d). Respons hanya berisi `alias_anonim`; psikolog dapat mengenali curhat dari
+  orang yang sama lewat alias, tetapi tidak dapat mengetahui siapa orangnya.
+- Balasan dienkripsi (AAD `curhat_balasan:isi_enc:<id_balasan>`). Mahasiswa melihat nama psikolog
+  yang membalas (psikolog tidak anonim).
+- Mahasiswa menerima notifikasi in-app `CURHAT_DIJAWAB` `{ id_curhat }` tanpa isi balasan; penerima
+  ditentukan di dalam SQL sehingga identitas tidak pernah sampai ke psikolog.
+- Audit: `CURHAT_READ` (daftar & detail) dan `CURHAT_BALAS` (02-backend.md §10).
+- Migrasi `1793900100000-CurhatBalasan` menambah indeks `curhat_balasan(id_curhat, waktu)`.
+
 ## 3. Curhat berisiko tinggi (belum didefinisikan)
 
 Karena aturan penanganan belum disepakati PO + psikolog, implementasi memakai default paling aman:
@@ -51,8 +71,10 @@ cd apps/api
 npm test -- --runInBand src/modules/curhat
 ```
 
-## Kriteria penerimaan PBI-16 (mahasiswa)
+## Kriteria penerimaan PBI-16
 
 - [x] Mahasiswa dapat mengirim curhat yang tersimpan terenkripsi dengan alias anonim stabil.
 - [x] Mahasiswa dapat melihat curhat dan balasan psikolog miliknya, serta menghapusnya.
 - [x] Setiap pengiriman menyertakan info bantuan darurat (Genta + hotline).
+- [x] Psikolog dapat membaca curhat tanpa identitas mahasiswa dan memberi saran; mahasiswa dikabari.
+- [x] Akses psikolog ke curhat tercatat di audit log.
