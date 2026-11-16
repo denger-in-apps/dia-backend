@@ -23,12 +23,20 @@ Panduan acceptance dan smoke test:
 - [PBI-12 perubahan dan pembatalan sesi](PBI-12-ubah-batal-sesi.md)
 - [PBI-13 ringkasan dan riwayat sesi](PBI-13-ringkasan-riwayat-sesi.md)
 - [PBI-14 pengingat sesi konseling](PBI-14-pengingat-sesi.md)
+- [PBI-15 cek mandiri PHQ-9 & GAD-7](PBI-15-cek-mandiri.md)
+- [PBI-16 ruang curhat anonim](PBI-16-curhat-anonim.md)
+- [PBI-17 Circle: telusuri, bergabung, persetujuan](PBI-17-circle.md)
+- [PBI-18 rekomendasi & pendampingan Circle](PBI-18-rekomendasi-pendampingan-circle.md)
+- [PBI-19 direktori sumber daya](PBI-19-direktori-sumber-daya.md)
 
 ### Batasan yang diketahui
 
 - Adapter SAML belum ada (`SSO_PROTOCOL=oidc` saja); kontrak REST akademik, SMS, dan email
   masih generik dan perlu disesuaikan dengan provider resmi.
-- Data master (kategori minat, kuesioner, sumber daya) dan modul PBI-15…21 belum dibuat.
+- Modul PBI-20 (laporan agregat, master data template kuesioner) dan PBI-21 (endpoint audit log)
+  belum dibuat. Kategori minat dan direktori sumber daya belum di-seed (diisi Dosen Admin);
+  template PHQ-9/GAD-7 v1 sudah ditanam migrasi tetapi terjemahannya perlu diverifikasi psikolog.
+- Ruang interaksi Circle masih polling REST (belum realtime); curhat berisiko tinggi belum punya aturan khusus.
 - Reset MFA staf yang kehilangan perangkat belum punya endpoint (lewat operator DB).
 - Sesi konseling yang tidak pernah dimulai psikolog tetap `DIJADWALKAN` (tidak ditutup otomatis).
 - `AllExceptionsFilter` (format error seragam) belum dibuat.

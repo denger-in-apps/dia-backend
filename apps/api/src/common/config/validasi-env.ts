@@ -2,6 +2,9 @@ import { intEnv } from '../domain/env';
 import { zonaWaktuJadwal } from '../domain/zona-waktu';
 import { toleransiGangguanJam } from '../../modules/akademik/akademik.service';
 import { bookingConfig } from '../../modules/booking/booking.constants';
+import { maksCekPerHari } from '../../modules/cek-mandiri/cek-mandiri.service';
+import { maksCurhatPerJam } from '../../modules/curhat/curhat.service';
+import { circleConfig } from '../../modules/circle/circle.constants';
 import { gentaConfig } from '../../modules/genta/genta.constants';
 import { offsetPengingat, pengingatConfig } from '../../modules/notifikasi/pengingat.constants';
 import { sesiConfig } from '../../modules/sesi/sesi.constants';
@@ -65,6 +68,9 @@ export function validasiEnv(env: Env = process.env): void {
     ['BOOKING_*/SESI_*', () => Object.values(bookingConfig).map((f) => f())],
     ['SESI_*', () => Object.values(sesiConfig).map((f) => f())],
     ['PENGINGAT_*', () => [offsetPengingat(), ...Object.values(pengingatConfig).map((f) => f())]],
+    ['CEK_MANDIRI_MAKS_PER_HARI', maksCekPerHari],
+    ['CURHAT_MAKS_PER_JAM', maksCurhatPerJam],
+    ['CIRCLE_*', () => Object.values(circleConfig).map((f) => f())],
   ];
   const sebelumnya = process.env;
   process.env = env;
