@@ -42,7 +42,7 @@ export const FROM_CIRCLE = `FROM circle c
   JOIN kategori_minat km ON km.id_kategori = c.id_kategori
   LEFT JOIN psikolog p ON p.id_psikolog = c.id_psikolog`;
 
-interface CircleRow {
+export interface CircleRow {
   id_circle: string;
   nama_circle: string;
   deskripsi: string | null;

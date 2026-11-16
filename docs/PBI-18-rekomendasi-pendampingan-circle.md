@@ -31,6 +31,29 @@ Tanpa preferensi, `butuh_preferensi: true` — FE sebaiknya meminta mahasiswa me
 
 Preferensi minat ikut diekspor (`GET /me/export`) dan dihapus saat akun dihapus (PBI-03).
 
+## 2. Dashboard pendampingan & moderasi (SCRUM-267)
+
+Prefix `/api/v1`, Bearer token, hanya role `PSIKOLOG`, hanya Circle yang ditetapkan Dosen Admin
+untuk psikolog ini (`circle.id_psikolog`, PBI-17 §2). Circle lain dibalas `404` (keberadaan tidak bocor).
+
+| Method | Path | Keterangan |
+|---|---|---|
+| GET | `/psikolog/circles` | Circle dampingan (`AKTIF` dulu) + `pesan_7_hari`, `pesan_disembunyikan`, `aktivitas_terakhir` |
+| GET | `/psikolog/circles/:id` | Detail + anggota (alias bila anonim, nama tampilan bila tidak) |
+| GET · POST | `/psikolog/circles/:id/pesan` | Pesan (termasuk isi yang disembunyikan, untuk peninjauan) · kirim sebagai `Pendamping (nama)` |
+| POST | `/psikolog/circles/:id/pesan/:pid/moderasi` | `{ alasan }` (3–500) — sembunyikan pesan |
+| POST | `/psikolog/circles/:id/pesan/:pid/pulihkan` | Batalkan moderasi |
+
+- Anggota melihat pesan tersembunyi sebagai `isi: null, disembunyikan: true` beserta
+  `alasan_moderasi`; pendamping tetap melihat isinya agar dapat meninjau/memulihkan.
+- **Anonimitas terhadap pendamping tetap terjaga:** pendamping melihat anggota anonim hanya
+  lewat aliasnya (NFR-04). Bila pendampingan memerlukan identitas (mis. risiko keselamatan),
+  arahkan mahasiswa ke Genta/booking — keputusan membuka identitas tidak diotomatisasi.
+- Setiap sembunyikan/pulihkan dicatat `CIRCLE_MODERASI` (`metadata.aksi`: `SEMBUNYIKAN`/`PULIHKAN`).
+- Pendamping tidak dapat menulis di Circle `DITUTUP`, tetapi masih dapat membaca dan memoderasi.
+- Bila psikolog pendamping dinonaktifkan (PBI-09), Circle tetap `AKTIF` dengan pendamping lama;
+  Dosen Admin mengganti pendamping lewat `PATCH /admin/circles/:id { id_psikolog }`.
+
 ## Cara cek
 
 ```powershell
@@ -38,7 +61,9 @@ cd apps/api
 npm test -- --runInBand src/modules/circle
 ```
 
-## Kriteria penerimaan PBI-18 (rekomendasi)
+## Kriteria penerimaan PBI-18
 
 - [x] Mahasiswa dapat menyimpan preferensi minat (kategori aktif, maks. 5).
 - [x] Mahasiswa menerima rekomendasi Circle yang relevan beserta alasannya; Circle penuh/yang sudah diikuti tidak disarankan.
+- [x] Psikolog melihat dashboard Circle dampingannya beserta indikator aktivitas.
+- [x] Psikolog dapat berinteraksi dan memoderasi pesan (sembunyikan dengan alasan, pulihkan); setiap moderasi diaudit.
