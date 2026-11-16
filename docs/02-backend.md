@@ -340,6 +340,12 @@ Slot alternatif (use case 5.b): kembalikan 3–5 slot terdekat psikolog yang sam
 
 ### 8.5 Cek Mandiri, Curhat, Circle, Direktori — PBI-15…19
 
+> Implementasi & kode error rinci: [PBI-15](PBI-15-cek-mandiri.md), [PBI-16](PBI-16-curhat-anonim.md),
+> [PBI-17](PBI-17-circle.md), [PBI-18](PBI-18-rekomendasi-pendampingan-circle.md), [PBI-19](PBI-19-direktori-sumber-daya.md).
+> Tambahan di luar tabel: `DELETE /cek-mandiri/:id`, `DELETE /curhat/:id`, `GET /circles/saya`,
+> `PATCH /circles/:id/keanggotaan`, `/admin/kategori-minat`, `POST /psikolog/circles/:id/pesan/:pid/pulihkan`;
+> `GET /sumber-daya` bersifat publik.
+
 | Method | Path | Peran | Keterangan |
 |--------|------|-------|------------|
 | GET | `/cek-mandiri/template` | Mhs | Template PHQ-9 + GAD-7 aktif |
