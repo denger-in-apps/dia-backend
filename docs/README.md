@@ -24,6 +24,7 @@ Panduan acceptance dan smoke test:
 - [PBI-13 ringkasan dan riwayat sesi](PBI-13-ringkasan-riwayat-sesi.md)
 - [PBI-14 pengingat sesi konseling](PBI-14-pengingat-sesi.md)
 - [PBI-15 cek mandiri PHQ-9 & GAD-7](PBI-15-cek-mandiri.md)
+- [PBI-16 ruang curhat anonim](PBI-16-curhat-anonim.md)
 
 ### Batasan yang diketahui
 

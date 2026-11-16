@@ -1,6 +1,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  hkdfSync,
   randomBytes,
 } from 'crypto';
 import { Injectable } from '@nestjs/common';
@@ -36,6 +37,16 @@ export class EncryptionService {
     if (!this.keys.has(this.activeKeyId)) {
       throw new Error(`ENCRYPTION_KEY_${this.activeKeyId} tidak tersedia`);
     }
+  }
+
+  /**
+   * Kunci turunan (HKDF-SHA256) dari kunci aktif untuk keperluan lain, mis. HMAC alias anonim.
+   * `label` membedakan kegunaan sehingga kunci turunan tidak dapat dipertukarkan. Rotasi kunci
+   * aktif menghasilkan kunci turunan baru (nilai lama yang sudah tersimpan tidak berubah).
+   */
+  turunkanKunci(label: string): Buffer {
+    if (!label.trim()) throw new Error('Label kunci turunan wajib diisi');
+    return Buffer.from(hkdfSync('sha256', this.keys.get(this.activeKeyId)!, Buffer.alloc(0), `denger:${label}`, 32));
   }
 
   encrypt(plaintext: Buffer | string, aad: string): Buffer {
