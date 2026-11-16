@@ -57,8 +57,8 @@ Migrasi `1793900000000-TemplateCekMandiri` menanam PHQ-9 v1 dan GAD-7 v1 berbaha
 
 > ⚠️ **Wajib sebelum rilis:** PHQ-9/GAD-7 bebas dipakai (public domain), tetapi teks terjemahan
 > harus diverifikasi psikolog/PO terhadap versi Indonesia yang tervalidasi. Revisi dibuat sebagai
-> **versi baru** (bukan mengubah versi lama) agar hasil lama tetap merujuk template aslinya;
-> pengelolaan template oleh admin (FR-ADM-07) dikerjakan di PBI-20.
+> **versi baru** (bukan mengubah versi lama) agar hasil lama tetap merujuk template aslinya,
+> lewat `/admin/template-kuesioner` (PBI-20 §2).
 
 ## Cara cek
 

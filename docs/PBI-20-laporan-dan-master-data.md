@@ -39,14 +39,57 @@ Migrasi `1794000000000-LaporanAgregat` menambah `v_laporan_sesi_bulanan` dan
 `v_laporan_curhat_bulanan` (aturan sama, `GRANT SELECT` hanya untuk `denger_report`).
 `REPORT_DATABASE_URL` sudah dibentuk Compose dan kini wajib saat boot (validasi env).
 
+## 2. Master data (SCRUM-275)
+
+Prefix `/api/v1`, Bearer token, hanya role `DOSEN_ADMIN` (modul `master-data`). Semua perubahan
+diaudit.
+
+### Kategori minat
+
+| Method | Path | Keterangan |
+|---|---|---|
+| GET | `/admin/kategori-minat` | Semua kategori + `circle_aktif`, `circle_total` |
+| POST | `/admin/kategori-minat` | `{ nama }` (2–60) — `409 KATEGORI_SUDAH_ADA` bila nama dipakai |
+| PATCH | `/admin/kategori-minat/:id` | `{ nama?, aktif? }` — nonaktif = tidak bisa dipilih untuk Circle/preferensi baru |
+| DELETE | `/admin/kategori-minat/:id` | Hanya bila belum dipakai Circle (`409 KATEGORI_DIPAKAI` → nonaktifkan saja); preferensi mahasiswa ikut dihapus |
+
+Audit: `KATEGORI_MINAT_BUAT`, `KATEGORI_MINAT_UBAH`, `KATEGORI_MINAT_HAPUS`. Endpoint ini dipindah
+dari modul Circle (sebelumnya ditarik ke SCRUM-264) tanpa perubahan path.
+
+### Template kuesioner (cek mandiri, PBI-15)
+
+| Method | Path | Keterangan |
+|---|---|---|
+| GET | `/admin/template-kuesioner?kode=` | Semua versi: `versi`, `aktif`, `jumlah_butir`, `jumlah_dipakai`, `dibuat_oleh` |
+| GET | `/admin/template-kuesioner/:id` | Detail + isi `butir` |
+| POST | `/admin/template-kuesioner` | `{ kode: PHQ9\|GAD7, nama, butir: { pertanyaan_pembuka, butir[{no,teks}], opsi[{nilai,label}] } }` → versi baru **nonaktif** |
+| POST | `/admin/template-kuesioner/:id/aktifkan` | Jadikan satu-satunya versi aktif untuk kodenya |
+| DELETE | `/admin/template-kuesioner/:id` | Hanya versi nonaktif yang belum pernah dipakai hasil cek mandiri |
+
+Aturan:
+
+- **Template tidak dapat diubah setelah dibuat.** Revisi (mis. hasil verifikasi terjemahan) dibuat
+  sebagai versi baru lalu diaktifkan; hasil cek mandiri lama tetap merujuk template yang dipakainya.
+- Isi divalidasi agar skor tetap sahih: PHQ-9 tepat 9 butir, GAD-7 tepat 7 butir, bernomor
+  1..n berurutan (`422 BUTIR_TIDAK_VALID`), dan tepat 4 opsi bernilai 0–3 (`422 OPSI_TIDAK_VALID`).
+- Paling banyak satu versi aktif per kode — dijamin indeks unik parsial `uq_template_kuesioner_aktif`
+  (migrasi `1794000100000-TemplateKuesionerAktifTunggal`). Tidak ada endpoint "nonaktifkan" agar
+  cek mandiri tidak pernah kehilangan template; pindah versi lewat `aktifkan`.
+- Versi aktif tidak dapat dihapus (`409 TEMPLATE_AKTIF`); versi yang sudah dipakai disimpan
+  (`409 TEMPLATE_DIPAKAI`).
+- Audit: `TEMPLATE_KUESIONER_BUAT`, `TEMPLATE_KUESIONER_AKTIFKAN` (beserta versi yang digantikan),
+  `TEMPLATE_KUESIONER_HAPUS`.
+
 ## Cara cek
 
 ```powershell
 cd apps/api
-npm test -- --runInBand src/modules/laporan
+npm test -- --runInBand src/modules/laporan src/modules/master-data
 ```
 
-## Kriteria penerimaan PBI-20 (laporan)
+## Kriteria penerimaan PBI-20
 
 - [x] Dosen Admin melihat tren SOS, cek mandiri, sesi konseling, curhat, dan Circle per bulan.
 - [x] Laporan hanya dibaca dari view agregat lewat role database `denger_report`; sel 1–4 disembunyikan.
+- [x] Dosen Admin mengelola kategori minat (tambah, ubah, nonaktifkan, hapus bila belum dipakai).
+- [x] Dosen Admin mengelola template kuesioner berversi tanpa merusak skor dan hasil lama; semua perubahan diaudit.

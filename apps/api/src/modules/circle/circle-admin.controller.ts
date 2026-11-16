@@ -6,10 +6,8 @@ import { AuthenticatedUser, Role } from '../../common/auth/auth.types';
 import {
   BuatCircleAdminDto,
   DaftarCircleAdminQuery,
-  KategoriMinatDto,
   SetujuiCircleDto,
   UbahCircleAdminDto,
-  UbahKategoriMinatDto,
 } from './circle-admin.dto';
 import { AlasanDto } from './circle.dto';
 import { CircleAdminService } from './circle-admin.service';
@@ -17,7 +15,7 @@ import { CircleAdminService } from './circle-admin.service';
 const uuid = () => new ParseUUIDPipe();
 const konteks = (request: Request) => ({ ip: request.ip, userAgent: request.get('user-agent') });
 
-/** Persetujuan & pengelolaan Circle dan kategori minat oleh Dosen Admin (PBI-17 / SCRUM-264, FR-ADM-07). */
+/** Persetujuan & pengelolaan Circle oleh Dosen Admin (PBI-17 / SCRUM-264, FR-ADM-07). */
 @Controller('admin')
 @Roles(Role.DOSEN_ADMIN)
 export class CircleAdminController {
@@ -59,20 +57,5 @@ export class CircleAdminController {
   @HttpCode(HttpStatus.OK)
   tutup(@CurrentUser() admin: AuthenticatedUser, @Param('id', uuid()) id: string, @Req() request: Request) {
     return this.circle.tutup(admin, id, konteks(request));
-  }
-
-  @Get('kategori-minat')
-  daftarKategori() {
-    return this.circle.daftarKategori();
-  }
-
-  @Post('kategori-minat')
-  buatKategori(@CurrentUser() admin: AuthenticatedUser, @Body() dto: KategoriMinatDto, @Req() request: Request) {
-    return this.circle.buatKategori(admin, dto.nama, konteks(request));
-  }
-
-  @Patch('kategori-minat/:id')
-  ubahKategori(@CurrentUser() admin: AuthenticatedUser, @Param('id', uuid()) id: string, @Body() dto: UbahKategoriMinatDto, @Req() request: Request) {
-    return this.circle.ubahKategori(admin, id, dto, konteks(request));
   }
 }

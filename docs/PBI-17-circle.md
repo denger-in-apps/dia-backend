@@ -79,8 +79,8 @@ Prefix `/api/v1`, Bearer token, hanya role `DOSEN_ADMIN`.
 `CIRCLE_BUAT`, `CIRCLE_UBAH`, `CIRCLE_TUTUP`, `KATEGORI_MINAT_BUAT`, `KATEGORI_MINAT_UBAH`.
 
 Kategori minat belum di-seed (daftar final ditetapkan PO + psikolog, 04-database.md §7): admin
-membuatnya sebelum Circle dapat diajukan. Pengelolaan master data lain (template kuesioner)
-tetap di PBI-20.
+membuatnya sebelum Circle dapat diajukan. Endpoint `/admin/kategori-minat` kini berada di modul
+`master-data` (PBI-20 §2, termasuk hapus kategori yang belum dipakai); path tidak berubah.
 
 ## Cara cek
 
