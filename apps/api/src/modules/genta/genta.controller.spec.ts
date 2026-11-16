@@ -157,10 +157,13 @@ describe('GentaController', () => {
       // Respons 403 tetap sama dengan penolakan RBAC global.
       expect(denied.body).toEqual({ message: 'Peran tidak memiliki akses ke resource ini', error: 'Forbidden', statusCode: 403 });
     }
-    // PBI-06: penolakan role pada endpoint lokasi diaudit, tepat sekali per percobaan.
-    expect(audit.catat).toHaveBeenCalledTimes(2);
+    // PBI-06: penolakan role pada endpoint lokasi diaudit SOS_LOKASI_READ, tepat sekali per percobaan.
+    // (RolesGuard juga mencatat AKSES_DITOLAK umum — PBI-21 — sehingga dihitung terpisah.)
+    const lokasiAudit = () => audit.catat.mock.calls.filter(([e]) => e.aksi === 'SOS_LOKASI_READ');
+    expect(lokasiAudit()).toHaveLength(2);
+    expect(audit.catat.mock.calls.filter(([e]) => e.aksi === 'AKSES_DITOLAK')).toHaveLength(2);
     for (const [i, role] of (['MAHASISWA', 'DOSEN_ADMIN'] as const).entries()) {
-      expect(audit.catat.mock.calls[i][0]).toMatchObject({
+      expect(lokasiAudit()[i][0]).toMatchObject({
         aktor: TEST_USERS[role], aksi: 'SOS_LOKASI_READ', resourceType: 'log_sos', resourceId: idSos,
         hasil: 'DITOLAK', metadata: { alasan: 'ROLE_TIDAK_DIIZINKAN' },
       });
@@ -172,7 +175,7 @@ describe('GentaController', () => {
     expect(gentaPsikolog.lokasiSos).toHaveBeenCalledTimes(1);
     expect(gentaPsikolog.lokasiSos).toHaveBeenCalledWith(TEST_USERS.PSIKOLOG, idSos, expect.any(Object));
     // Akses psikolog diaudit oleh service (di-mock di sini), bukan oleh filter.
-    expect(audit.catat).toHaveBeenCalledTimes(2);
+    expect(lokasiAudit()).toHaveLength(2);
   });
 
   it('does not audit role denials on other psikolog endpoints (filter scoped to /lokasi only)', async () => {
@@ -180,7 +183,9 @@ describe('GentaController', () => {
       .get(`/api/v1/psikolog/sos/${idSos}`).set('Authorization', bearer('MAHASISWA')).expect(403);
     await request(app.getHttpServer())
       .get('/api/v1/psikolog/sos').set('Authorization', bearer('DOSEN_ADMIN')).expect(403);
-    expect(audit.catat).not.toHaveBeenCalled();
+    expect(audit.catat.mock.calls.filter(([e]) => e.aksi === 'SOS_LOKASI_READ')).toHaveLength(0);
+    // Penolakan peran tetap tercatat sebagai AKSES_DITOLAK umum (PBI-21).
+    expect(audit.catat.mock.calls.map(([e]) => e.aksi)).toEqual(['AKSES_DITOLAK', 'AKSES_DITOLAK']);
   });
 
   describe('dashboard psikolog', () => {

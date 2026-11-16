@@ -35,6 +35,7 @@ Tiga peran pengguna: **Mahasiswa** (login SSO kampus), **Psikolog**, dan **Dosen
 | **Eskalasi** | Timer eskalasi 3 menit (BullMQ + sweeper DB), SMS ke penerima kampus & kontak darurat, info hotline Healing119.id (119 ext. 8), konfigurasi oleh admin, kelola akun psikolog & jadwal jaga | 09 |
 | **Konseling** | Booking slot (anti-bentrok dua lapis), ubah/batal sesi, jadwal & pelaksanaan sesi psikolog, ruang sesi **chat E2EE** + signaling WebRTC, ringkasan sesi berbasis consent, riwayat, pengingat H-24 jam & H-1 jam (in-app + email) | 10–14 |
 | **Dukungan mahasiswa** | Cek mandiri PHQ-9 & GAD-7 (skor server, jalur bantuan segera), curhat anonim + balasan psikolog, Circle (telusuri, gabung, persetujuan admin, rekomendasi, moderasi pendamping), direktori sumber daya | 15–19 |
+| **Administrasi** | Laporan agregat anonim (role DB `denger_report`, sel < 5 disamarkan), master data kategori minat & template kuesioner berversi, audit log keamanan (filter, ekspor CSV, `AKSES_DITOLAK`) | 20–21 |
 
 Daftar endpoint lengkap tersedia di Swagger (`/api/docs`) saat berjalan non-produksi, dan
 rinciannya per fitur di [`docs/`](docs/README.md).
@@ -131,7 +132,7 @@ setiap perubahan berikutnya berupa migrasi di
 |---|---|---|
 | `denger_owner` | Service `migrate` | DDL penuh |
 | `denger_app` | API | DML pada tabel aplikasi; **tanpa** `UPDATE/DELETE/TRUNCATE` pada `audit_log` |
-| `denger_report` | Modul laporan | `SELECT` hanya pada view `v_laporan_*` |
+| `denger_report` | Modul laporan (koneksi terpisah `REPORT_DATABASE_URL`) | `SELECT` hanya pada view `v_laporan_*` |
 
 Contoh invarian yang dijaga database: sesi konseling tidak bisa bentrok (exclusion constraint
 `tstzrange`), satu SOS aktif per mahasiswa (indeks unik parsial), ringkasan sesi mustahil
@@ -223,7 +224,7 @@ dengan daftar kesalahan bila ada yang salah.
 
 | Kelompok | Variabel penting |
 |---|---|
-| Rahasia (wajib) | `DATABASE_URL`, `JWT_PRIVATE_KEY_PATH`, `JWT_PUBLIC_KEY_PATH`, `ENCRYPTION_ACTIVE_KEY_ID`, `ENCRYPTION_KEY_<id>` |
+| Rahasia (wajib) | `DATABASE_URL`, `REPORT_DATABASE_URL`, `JWT_PRIVATE_KEY_PATH`, `JWT_PUBLIC_KEY_PATH`, `ENCRYPTION_ACTIVE_KEY_ID`, `ENCRYPTION_KEY_<id>` |
 | Web | `CORS_ORIGINS`, `FRONTEND_LOGIN_SUCCESS_URL`, `FRONTEND_LOGIN_FAILURE_URL`, `TRUST_PROXY` |
 | SSO & akademik | `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, `AKADEMIK_MODE` (`mock`/`http`) |
 | Integrasi | `SMS_PROVIDER`, `EMAIL_PROVIDER` (`console` untuk dev, **`http` wajib di produksi**) |
@@ -286,6 +287,7 @@ dia-backend/
 │  │  │  ├─ admin-staf/         # akun psikolog & jadwal jaga
 │  │  │  ├─ booking/ sesi/ notifikasi/   # konseling, ruang E2EE, pengingat
 │  │  │  ├─ cek-mandiri/ curhat/ circle/ sumber-daya/
+│  │  │  ├─ laporan/ master-data/ audit-log/   # admin: laporan anonim, master data, audit
 │  │  ├─ database/              # sql/, migrations/, seed/, transaksi.ts
 │  ├─ test/                     # e2e
 │  └─ Dockerfile                # target dev / build / prod (non-root)
@@ -326,6 +328,6 @@ Batasan yang diketahui dan keputusan yang masih menunggu PO tercatat di
 | [`docs/README.md`](docs/README.md) | Panduan operasional: menjalankan, tes, backup, migrasi, batasan |
 | [`docs/02-backend.md`](docs/02-backend.md) | Rancangan backend: modul, katalog endpoint, aturan domain |
 | [`docs/04-database.md`](docs/04-database.md) | Rancangan database: DDL, role, retensi |
-| `docs/PBI-01` … `docs/PBI-19` | Perilaku yang sudah diimplementasikan per fitur, kode error, cara uji |
+| `docs/PBI-01` … `docs/PBI-21` | Perilaku yang sudah diimplementasikan per fitur, kode error, cara uji |
 
 Bila rancangan (02/04) berbeda dengan dokumen PBI, **dokumen PBI yang berlaku**.
