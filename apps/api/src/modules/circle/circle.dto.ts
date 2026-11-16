@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min } from 'class-validator';
 import { TEKS_BEBAS } from '../booking/booking.dto';
 import { KUOTA_MAKS, KUOTA_MIN } from './circle.constants';
 
@@ -75,6 +75,23 @@ export class DaftarPesanQuery {
   @IsInt()
   @Min(1)
   @Max(100)
+  limit?: number;
+}
+
+export class PreferensiMinatDto {
+  /** Ganti seluruh preferensi; `[]` menghapus semuanya. */
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsUUID('all', { each: true })
+  id_kategori!: string[];
+}
+
+export class RekomendasiQuery {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
   limit?: number;
 }
 

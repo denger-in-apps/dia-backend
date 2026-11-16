@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
@@ -15,8 +16,17 @@ import { Response } from 'express';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import { Roles } from '../../common/auth/roles.decorator';
 import { AuthenticatedUser, Role } from '../../common/auth/auth.types';
-import { AjukanCircleDto, DaftarPesanQuery, KirimPesanCircleDto, TelusuriCircleQuery, UbahKeanggotaanDto } from './circle.dto';
+import {
+  AjukanCircleDto,
+  DaftarPesanQuery,
+  KirimPesanCircleDto,
+  PreferensiMinatDto,
+  RekomendasiQuery,
+  TelusuriCircleQuery,
+  UbahKeanggotaanDto,
+} from './circle.dto';
 import { CircleService } from './circle.service';
+import { RekomendasiService } from './rekomendasi.service';
 
 const uuid = () => new ParseUUIDPipe();
 
@@ -35,11 +45,20 @@ export class KategoriMinatController {
 @Controller('circles')
 @Roles(Role.MAHASISWA)
 export class CircleController {
-  constructor(private readonly circle: CircleService) {}
+  constructor(
+    private readonly circle: CircleService,
+    private readonly rekomendasi: RekomendasiService,
+  ) {}
 
   @Get()
   telusuri(@CurrentUser() user: AuthenticatedUser, @Query() query: TelusuriCircleQuery) {
     return this.circle.telusuri(user.id, query);
+  }
+
+  /** Rekomendasi Circle (PBI-18 / SCRUM-266, FR-MHS-07). */
+  @Get('rekomendasi')
+  rekomendasiCircle(@CurrentUser() user: AuthenticatedUser, @Query() query: RekomendasiQuery) {
+    return this.rekomendasi.rekomendasi(user.id, query.limit);
   }
 
   @Get('saya')
@@ -90,5 +109,22 @@ export class CircleController {
   @Post(':id/pesan')
   kirimPesan(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid()) id: string, @Body() dto: KirimPesanCircleDto) {
     return this.circle.kirimPesan(user.id, id, dto.isi);
+  }
+}
+
+/** Preferensi minat mahasiswa untuk rekomendasi Circle (02-backend.md §8.1: `PUT /me/preferensi-minat`). */
+@Controller('me/preferensi-minat')
+@Roles(Role.MAHASISWA)
+export class PreferensiMinatController {
+  constructor(private readonly rekomendasi: RekomendasiService) {}
+
+  @Get()
+  daftar(@CurrentUser() user: AuthenticatedUser) {
+    return this.rekomendasi.preferensi(user.id);
+  }
+
+  @Put()
+  simpan(@CurrentUser() user: AuthenticatedUser, @Body() dto: PreferensiMinatDto) {
+    return this.rekomendasi.simpanPreferensi(user.id, dto.id_kategori);
   }
 }

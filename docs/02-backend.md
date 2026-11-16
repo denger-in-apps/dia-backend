@@ -278,7 +278,7 @@ Prefix `/api/v1`. Semua endpoint (kecuali auth publik dan direktori jika dibuka)
 | GET | `/me/export` | Mhs | Ekspor data milik sendiri (JSON) |
 | DELETE | `/me` | Mhs | Hapus data (soft delete + anonimisasi; body `{ konfirmasi: "HAPUS" }`, lihat PBI-03) |
 | GET · POST · PATCH · DELETE | `/me/kontak-darurat[/:id]` | Mhs | Kontak darurat |
-| PUT | `/me/preferensi-minat` | Mhs | Untuk rekomendasi Circle _(belum dibuat — PBI-18)_ |
+| GET · PUT | `/me/preferensi-minat` | Mhs | Untuk rekomendasi Circle (PBI-18) |
 | GET · PUT · POST | `/me/kunci-e2ee` | Mhs, Psi | Kunci publik chat E2EE (PBI-11) |
 
 ### 8.2 Genta — PBI-05…09
