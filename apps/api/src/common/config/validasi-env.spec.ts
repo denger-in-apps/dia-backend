@@ -2,7 +2,7 @@ import { validasiEnv } from './validasi-env';
 
 describe('validasiEnv (SCRUM-200)', () => {
   const dasar = {
-    DATABASE_URL: 'postgres://u:p@db/x', JWT_PRIVATE_KEY_PATH: '/k', JWT_PUBLIC_KEY_PATH: '/p',
+    DATABASE_URL: 'postgres://u:p@db/x', REPORT_DATABASE_URL: 'postgres://r:p@db/x', JWT_PRIVATE_KEY_PATH: '/k', JWT_PUBLIC_KEY_PATH: '/p',
     ENCRYPTION_ACTIVE_KEY_ID: '1', CORS_ORIGINS: 'https://localhost',
   };
 

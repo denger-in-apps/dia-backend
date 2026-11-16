@@ -28,6 +28,7 @@ Panduan acceptance dan smoke test:
 - [PBI-17 Circle: telusuri, bergabung, persetujuan](PBI-17-circle.md)
 - [PBI-18 rekomendasi & pendampingan Circle](PBI-18-rekomendasi-pendampingan-circle.md)
 - [PBI-19 direktori sumber daya](PBI-19-direktori-sumber-daya.md)
+- [PBI-20 laporan agregat & master data](PBI-20-laporan-dan-master-data.md)
 
 ### Batasan yang diketahui
 

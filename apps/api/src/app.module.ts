@@ -17,11 +17,12 @@ import { CekMandiriModule } from './modules/cek-mandiri/cek-mandiri.module';
 import { CurhatModule } from './modules/curhat/curhat.module';
 import { CircleModule } from './modules/circle/circle.module';
 import { SumberDayaModule } from './modules/sumber-daya/sumber-daya.module';
+import { LaporanModule } from './modules/laporan/laporan.module';
 
 @Module({
   imports: [
     LoggerModule.forRoot(konfigurasiLogger()), ScheduleModule.forRoot(), HealthModule, CryptoModule, DatabaseModule, AkademikModule, AuthModule, AkunModule,
-    GentaModule, RealtimeModule, AdminStafModule, BookingModule, SesiModule, CekMandiriModule, CurhatModule, CircleModule, SumberDayaModule,
+    GentaModule, RealtimeModule, AdminStafModule, BookingModule, SesiModule, CekMandiriModule, CurhatModule, CircleModule, SumberDayaModule, LaporanModule,
   ],
 })
 export class AppModule {}
